@@ -36,6 +36,9 @@ interface VideoSlide {
   duration: number; // in seconds
   transition: "zoom" | "panLeft" | "panRight" | "slideUp" | "slideLeft" | "slideRight" | "blurFade" | "retroSpin";
   caption: string;
+  fitMode?: "cover" | "contain";
+  zoomMultiplier?: number; // scale adjustment from 0.6 to 2.0
+  showSubtitle?: boolean;
 }
 
 export default function App() {
@@ -43,6 +46,12 @@ export default function App() {
   const [slides, setSlides] = useState<VideoSlide[]>([]);
   const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
+  
+  // Video Global Aspect Ratio State
+  const [videoAspectRatio, setVideoAspectRatio] = useState<"16:9" | "9:16" | "1:1" | "4:3">("16:9");
+
+  // Subtitle / Caption Global State
+  const [globalShowSubtitles, setGlobalShowSubtitles] = useState<boolean>(true);
 
   // Video Playback State
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -153,7 +162,10 @@ export default function App() {
           name: file.name,
           duration: 3,
           transition,
-          caption: `${prettyName} Memory`
+          caption: `${prettyName} Memory`,
+          fitMode: "cover",
+          zoomMultiplier: 1.0,
+          showSubtitle: true
         });
 
         loadedCount++;
@@ -255,7 +267,10 @@ export default function App() {
       name: `${kw}.jpg`,
       duration: idx % 3 === 0 ? 4 : 3,
       transition: demoTransitions[idx % demoTransitions.length],
-      caption: `Unforgettable college moments in the ${kw} scene`
+      caption: `Unforgettable college moments in the ${kw} scene`,
+      fitMode: "cover",
+      zoomMultiplier: 1.0,
+      showSubtitle: true
     }));
 
     setSlides(demoSlides);
@@ -313,9 +328,21 @@ export default function App() {
 
     try {
       const canvas = document.createElement("canvas");
-      // Clean high-definition cinematic aspect ratio
-      canvas.width = 1280;
-      canvas.height = 720;
+      // Choose dimensions based on selected aspect ratio
+      let canvasW = 1280;
+      let canvasH = 720;
+      if (videoAspectRatio === "9:16") {
+        canvasW = 720;
+        canvasH = 1280;
+      } else if (videoAspectRatio === "1:1") {
+        canvasW = 1000;
+        canvasH = 1000;
+      } else if (videoAspectRatio === "4:3") {
+        canvasW = 960;
+        canvasH = 720;
+      }
+      canvas.width = canvasW;
+      canvas.height = canvasH;
       const ctx = canvas.getContext("2d");
       if (!ctx) throw new Error("Canvas 2D context retrieval failed");
 
@@ -373,7 +400,7 @@ export default function App() {
           ctx.fillRect(0, 0, canvas.width, canvas.height);
 
           // Kinetic Ken-Burns & Transition calculations
-          let scale = 1.0;
+          let transitionScale = 1.0;
           let dx = 0;
           let dy = 0;
           let rotation = 0;
@@ -382,16 +409,16 @@ export default function App() {
 
           const t = activeSlide.transition;
           if (t === "zoom") {
-            scale = 1.0 + ratio * 0.18; // smooth zooming-in
+            transitionScale = 1.0 + ratio * 0.18; // smooth zooming-in
           } else if (t === "panLeft") {
             dx = (0.5 - ratio) * 60;
-            scale = 1.1;
+            transitionScale = 1.1;
           } else if (t === "panRight") {
             dx = (ratio - 0.5) * 60;
-            scale = 1.1;
+            transitionScale = 1.1;
           } else if (t === "slideUp") {
             dy = (1.0 - ratio) * 50;
-            scale = 1.05;
+            transitionScale = 1.05;
           } else if (t === "slideLeft") {
             dx = (1.0 - ratio) * 80;
           } else if (t === "slideRight") {
@@ -401,13 +428,35 @@ export default function App() {
             blurAmount = ratio < 0.2 ? (1 - ratio * 5) * 20 : 0;
           } else if (t === "retroSpin") {
             rotation = ratio * 0.05;
-            scale = 1.0 + ratio * 0.1;
+            transitionScale = 1.0 + ratio * 0.1;
           }
 
-          const renderW = canvas.width * scale;
-          const renderH = canvas.height * scale;
-          const xOffset = (canvas.width - renderW) / 2 + dx;
-          const yOffset = (canvas.height - renderH) / 2 + dy;
+          // Ratio calculation for Cover vs Contain
+          const imgRatio = img.width / img.height;
+          const canvasRatio = canvas.width / canvas.height;
+          let baseScale = 1.0;
+          const fit = activeSlide.fitMode || "cover";
+
+          if (fit === "cover") {
+            if (imgRatio > canvasRatio) {
+              baseScale = canvas.height / img.height;
+            } else {
+              baseScale = canvas.width / img.width;
+            }
+          } else {
+            if (imgRatio > canvasRatio) {
+              baseScale = canvas.width / img.width;
+            } else {
+              baseScale = canvas.height / img.height;
+            }
+          }
+
+          // Apply custom zoom multiplier
+          baseScale *= (activeSlide.zoomMultiplier || 1.0);
+
+          const finalScale = baseScale * transitionScale;
+          const renderW = img.width * finalScale;
+          const renderH = img.height * finalScale;
 
           ctx.save();
           if (blurAmount > 0) {
@@ -415,7 +464,7 @@ export default function App() {
           }
           ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
 
-          // Draw the photo onto the HD canvas
+          // Draw the photo onto the dynamic canvas, centered
           ctx.translate(canvas.width / 2, canvas.height / 2);
           ctx.rotate(rotation);
           ctx.drawImage(img, -renderW / 2 + dx, -renderH / 2 + dy, renderW, renderH);
@@ -430,7 +479,7 @@ export default function App() {
           ctx.fillRect(0, 0, canvas.width, canvas.height);
 
           // Draw beautiful movie subtitle captions at bottom
-          if (activeSlide.caption) {
+          if (globalShowSubtitles && activeSlide.showSubtitle !== false && activeSlide.caption) {
             ctx.fillStyle = "rgba(9, 5, 4, 0.85)";
             // Rounded backing panel
             ctx.beginPath();
@@ -469,61 +518,63 @@ export default function App() {
     }
   };
 
-  // Pick transition parameters for CSS motion components
-  const getMotionAnimation = (style: VideoSlide["transition"], sec: number) => {
+  // Pick transition parameters for CSS motion components with zoomMultiplier support
+  const getMotionAnimation = (slide: VideoSlide, sec: number) => {
+    const style = slide.transition;
+    const userScale = slide.zoomMultiplier || 1.0;
     switch (style) {
       case "zoom":
         return {
-          initial: { scale: 1 },
-          animate: { scale: 1.15 },
+          initial: { scale: userScale },
+          animate: { scale: userScale * 1.18 },
           transition: { duration: sec, ease: "easeOut" }
         };
       case "panLeft":
         return {
-          initial: { x: 30, scale: 1.1 },
-          animate: { x: -30, scale: 1.1 },
+          initial: { x: 30, scale: userScale * 1.1 },
+          animate: { x: -30, scale: userScale * 1.1 },
           transition: { duration: sec, ease: "linear" }
         };
       case "panRight":
         return {
-          initial: { x: -30, scale: 1.1 },
-          animate: { x: 30, scale: 1.1 },
+          initial: { x: -30, scale: userScale * 1.1 },
+          animate: { x: 30, scale: userScale * 1.1 },
           transition: { duration: sec, ease: "linear" }
         };
       case "slideUp":
         return {
-          initial: { y: 40, scale: 1.05 },
-          animate: { y: -10, scale: 1.05 },
+          initial: { y: 40, scale: userScale * 1.05 },
+          animate: { y: -10, scale: userScale * 1.05 },
           transition: { duration: sec, ease: "easeOut" }
         };
       case "slideLeft":
         return {
-          initial: { x: 80 },
-          animate: { x: 0 },
+          initial: { x: 80, scale: userScale },
+          animate: { x: 0, scale: userScale },
           transition: { duration: sec, ease: "easeOut" }
         };
       case "slideRight":
         return {
-          initial: { x: -80 },
-          animate: { x: 0 },
+          initial: { x: -80, scale: userScale },
+          animate: { x: 0, scale: userScale },
           transition: { duration: sec, ease: "easeOut" }
         };
       case "blurFade":
         return {
-          initial: { filter: "blur(15px)", opacity: 0 },
-          animate: { filter: "blur(0px)", opacity: 1 },
+          initial: { filter: "blur(15px)", opacity: 0, scale: userScale },
+          animate: { filter: "blur(0px)", opacity: 1, scale: userScale },
           transition: { duration: 0.8, ease: "easeOut" }
         };
       case "retroSpin":
         return {
-          initial: { rotate: -3, scale: 1.1 },
-          animate: { rotate: 3, scale: 1.15 },
+          initial: { rotate: -3, scale: userScale * 1.1 },
+          animate: { rotate: 3, scale: userScale * 1.15 },
           transition: { duration: sec, ease: "easeOut" }
         };
       default:
         return {
-          initial: { opacity: 0 },
-          animate: { opacity: 1 },
+          initial: { opacity: 0, scale: userScale },
+          animate: { opacity: 1, scale: userScale },
           transition: { duration: 0.5 }
         };
     }
@@ -621,7 +672,7 @@ export default function App() {
             <section className="lg:col-span-7 space-y-6">
               {/* High-Fidelity Interactive Slideshow Box */}
               <div className="bg-stone-900 border border-stone-800 rounded-3xl p-6 shadow-2xl relative">
-                <div className="flex items-center justify-between mb-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-4">
                   <div className="flex items-center gap-2">
                     <Eye className="w-4 h-4 text-amber-500 animate-pulse" />
                     <span className="text-xs font-mono font-bold tracking-widest text-stone-300">
@@ -629,7 +680,38 @@ export default function App() {
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-3">
+                  {/* Dynamic Video Aspect Ratio Picker */}
+                  <div className="flex items-center gap-1 bg-stone-950 p-1 rounded-xl border border-stone-800 self-start sm:self-auto">
+                    <span className="text-[9px] font-mono text-stone-500 px-2 uppercase font-bold">Video Ratio:</span>
+                    {(["16:9", "9:16", "1:1", "4:3"] as const).map((r) => (
+                      <button
+                        key={r}
+                        onClick={() => setVideoAspectRatio(r)}
+                        className={`text-[9px] font-mono font-bold px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                          videoAspectRatio === r
+                            ? "bg-amber-500 text-stone-950 shadow shadow-amber-500/20"
+                            : "text-stone-400 hover:text-stone-200 hover:bg-stone-900"
+                        }`}
+                      >
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-2.5 self-end sm:self-auto">
+                    <button
+                      onClick={() => setGlobalShowSubtitles(!globalShowSubtitles)}
+                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[10px] font-mono font-bold transition-all cursor-pointer ${
+                        globalShowSubtitles
+                          ? "bg-amber-500/10 border-amber-500/40 text-amber-400"
+                          : "bg-stone-950 border-stone-800 text-stone-500 hover:text-stone-400"
+                      }`}
+                      title={globalShowSubtitles ? "Hide all subtitles on video" : "Show subtitles on video"}
+                    >
+                      <FontIcon className="w-3 h-3" />
+                      <span>SUBTITLES {globalShowSubtitles ? "ON" : "OFF"}</span>
+                    </button>
+
                     <button
                       onClick={() => setIsMuted(!isMuted)}
                       className="p-1.5 rounded-lg bg-stone-950 border border-stone-800 hover:border-stone-700 text-stone-400 hover:text-stone-200 cursor-pointer"
@@ -643,7 +725,12 @@ export default function App() {
                 </div>
 
                 {/* Primary Slide Display Window */}
-                <div className="relative aspect-video bg-stone-950 rounded-2xl overflow-hidden border border-stone-800 shadow-inner flex items-center justify-center">
+                <div className={`relative bg-stone-950 rounded-2xl overflow-hidden border border-stone-800 shadow-inner flex items-center justify-center transition-all duration-300 ${
+                  videoAspectRatio === "16:9" ? "aspect-video w-full" :
+                  videoAspectRatio === "9:16" ? "aspect-[9/16] h-[480px] sm:h-[520px] mx-auto" :
+                  videoAspectRatio === "1:1" ? "aspect-square h-[450px] mx-auto" :
+                  "aspect-[4/3] h-[450px] mx-auto"
+                }`}>
                   <AnimatePresence mode="wait">
                     {slides[currentIndex] && (
                       <motion.div
@@ -659,9 +746,11 @@ export default function App() {
                           key={slides[currentIndex].id + "_motion"}
                           src={slides[currentIndex].url}
                           alt="Cinematic Image Frame"
-                          className="w-full h-full object-cover"
+                          className={`w-full h-full ${
+                            slides[currentIndex].fitMode === "contain" ? "object-contain bg-stone-950" : "object-cover"
+                          }`}
                           referrerPolicy="no-referrer"
-                          {...getMotionAnimation(slides[currentIndex].transition, slides[currentIndex].duration)}
+                          {...getMotionAnimation(slides[currentIndex], slides[currentIndex].duration)}
                         />
 
                         {/* Modern Gradient Shading overlay */}
@@ -669,10 +758,12 @@ export default function App() {
 
                         {/* Interactive Caption Overlay */}
                         <div className="absolute bottom-6 left-6 right-6 z-20 text-center">
-                          <p className="text-stone-100 font-extrabold text-lg md:text-xl drop-shadow-lg max-w-2xl mx-auto leading-relaxed">
-                            "{slides[currentIndex].caption || slides[currentIndex].name}"
-                          </p>
-                          <div className="flex items-center justify-center gap-2 mt-3">
+                          {globalShowSubtitles && slides[currentIndex].showSubtitle !== false && slides[currentIndex].caption && (
+                            <p className="text-stone-100 font-extrabold text-lg md:text-xl drop-shadow-lg max-w-2xl mx-auto leading-relaxed mb-3">
+                              "{slides[currentIndex].caption}"
+                            </p>
+                          )}
+                          <div className="flex items-center justify-center gap-2">
                             <span className="text-[10px] font-mono text-amber-500 bg-stone-950/80 px-2.5 py-0.5 rounded-full border border-stone-800">
                               FRAME {currentIndex + 1} OF {slides.length}
                             </span>
@@ -891,6 +982,235 @@ export default function App() {
                   </div>
                 </div>
               </div>
+
+              {/* Selected Slide Fine-Tuning Inspector Panel (Aspect Ratio, Fit Mode, Scale) */}
+              {slides[currentIndex] && (
+                <div className="bg-stone-900 border border-stone-800 rounded-3xl p-6 shadow-2xl space-y-4">
+                  <div className="flex items-center gap-2 border-b border-stone-800 pb-3 mb-1">
+                    <Sliders className="w-4 h-4 text-amber-500" />
+                    <h3 className="text-xs font-mono font-bold tracking-wider uppercase text-stone-200">
+                      Frame #{currentIndex + 1} Inspector
+                    </h3>
+                    <span className="text-[10px] font-mono text-stone-400 ml-auto truncate max-w-[150px]">
+                      {slides[currentIndex].name}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Thumbnail Preview in inspector */}
+                    <div className="relative aspect-video bg-stone-950 rounded-xl overflow-hidden border border-stone-800 flex items-center justify-center">
+                      <img
+                        src={slides[currentIndex].url}
+                        alt="Inspector Thumbnail"
+                        className={`w-full h-full ${
+                          slides[currentIndex].fitMode === "contain" ? "object-contain" : "object-cover"
+                        }`}
+                        referrerPolicy="no-referrer"
+                      />
+                      <span className="absolute bottom-2 left-2 text-[8px] font-mono bg-stone-900/90 text-stone-400 px-1.5 py-0.5 rounded border border-stone-800 uppercase">
+                        {slides[currentIndex].fitMode === "contain" ? "Contain" : "Cover"}
+                      </span>
+                    </div>
+
+                    {/* Quick controls */}
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-[10px] font-mono uppercase text-stone-400 mb-1">
+                          Fit Mode (Aspect Control)
+                        </label>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <button
+                            onClick={() => {
+                              const updated = [...slides];
+                              updated[currentIndex].fitMode = "cover";
+                              setSlides(updated);
+                            }}
+                            className={`py-1.5 rounded-lg text-center text-[9px] font-bold border transition-all cursor-pointer ${
+                              (slides[currentIndex].fitMode || "cover") === "cover"
+                                ? "bg-amber-500/10 border-amber-500/40 text-amber-400 font-extrabold"
+                                : "bg-stone-950 border-stone-800/80 text-stone-400 hover:text-stone-300"
+                            }`}
+                          >
+                            Fill Frame (Cover)
+                          </button>
+                          <button
+                            onClick={() => {
+                              const updated = [...slides];
+                              updated[currentIndex].fitMode = "contain";
+                              setSlides(updated);
+                            }}
+                            className={`py-1.5 rounded-lg text-center text-[9px] font-bold border transition-all cursor-pointer ${
+                              slides[currentIndex].fitMode === "contain"
+                                ? "bg-amber-500/10 border-amber-500/40 text-amber-400 font-extrabold"
+                                : "bg-stone-950 border-stone-800/80 text-stone-400 hover:text-stone-300"
+                            }`}
+                          >
+                            Fit Frame (Contain)
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between items-center mb-1">
+                          <label className="text-[10px] font-mono uppercase text-stone-400">
+                            Custom Zoom Ratio
+                          </label>
+                          <span className="text-[10px] font-mono font-bold text-amber-500">
+                            {slides[currentIndex].zoomMultiplier ? `${slides[currentIndex].zoomMultiplier.toFixed(1)}x` : "1.0x"}
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0.6"
+                          max="2.0"
+                          step="0.1"
+                          value={slides[currentIndex].zoomMultiplier || 1.0}
+                          onChange={(e) => {
+                            const updated = [...slides];
+                            updated[currentIndex].zoomMultiplier = Number(e.target.value);
+                            setSlides(updated);
+                          }}
+                          className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-950 rounded-lg appearance-none"
+                        />
+                        <div className="flex justify-between text-[8px] font-mono text-stone-500 mt-1">
+                          <span>0.6x (Zoom Out)</span>
+                          <span>1.0x (Original)</span>
+                          <span>2.0x (Zoom In)</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Subtitle caption input & settings */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                    <div>
+                      <label className="block text-[10px] font-mono uppercase text-stone-400 mb-1.5">
+                        Transition Animation Style
+                      </label>
+                      <select
+                        value={slides[currentIndex].transition}
+                        onChange={(e) => {
+                          const updated = [...slides];
+                          updated[currentIndex].transition = e.target.value as any;
+                          setSlides(updated);
+                        }}
+                        className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-xs text-stone-200 focus:border-amber-500/50 focus:outline-none cursor-pointer"
+                      >
+                        <option value="zoom">Zoom In Effect</option>
+                        <option value="panLeft">Pan Left Movement</option>
+                        <option value="panRight">Pan Right Movement</option>
+                        <option value="slideUp">Slide Up Entry</option>
+                        <option value="slideLeft">Slide Left Entry</option>
+                        <option value="slideRight">Slide Right Entry</option>
+                        <option value="blurFade">Cinematic Blur Dissolve</option>
+                        <option value="retroSpin">Retro Spin & Zoom</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-mono uppercase text-stone-400 mb-1.5">
+                        Duration in Seconds
+                      </label>
+                      <div className="flex gap-1 bg-stone-950 p-0.5 rounded-xl border border-stone-800">
+                        {[2, 3, 4, 5, 8].map((sec) => (
+                          <button
+                            key={sec}
+                            onClick={() => {
+                              const updated = [...slides];
+                              updated[currentIndex].duration = sec;
+                              setSlides(updated);
+                            }}
+                            className={`flex-1 py-1.5 rounded-lg text-center text-xs font-mono font-bold transition-all cursor-pointer ${
+                              slides[currentIndex].duration === sec
+                                ? "bg-amber-500 text-stone-950"
+                                : "text-stone-400 hover:text-stone-200"
+                            }`}
+                          >
+                            {sec}s
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                   <div className="space-y-2 border-t border-stone-800/60 pt-4">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-mono uppercase text-stone-400 font-bold flex items-center gap-1.5">
+                        <FontIcon className="w-3.5 h-3.5 text-amber-500" />
+                        Subtitle Overlay & Caption
+                      </label>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updated = [...slides];
+                            updated[currentIndex].showSubtitle = !(updated[currentIndex].showSubtitle !== false);
+                            setSlides(updated);
+                          }}
+                          className={`text-[9px] font-mono font-bold px-2 py-1 rounded-lg border transition-colors cursor-pointer ${
+                            slides[currentIndex].showSubtitle !== false
+                              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                              : "bg-rose-500/10 border-rose-500/30 text-rose-400"
+                          }`}
+                        >
+                          {slides[currentIndex].showSubtitle !== false ? "● Subtitle Enabled" : "○ Subtitle Disabled"}
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {/* Caption input and quick action buttons */}
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={slides[currentIndex].caption || ""}
+                        onChange={(e) => {
+                          const updated = [...slides];
+                          updated[currentIndex].caption = e.target.value;
+                          if (e.target.value && updated[currentIndex].showSubtitle === false) {
+                            updated[currentIndex].showSubtitle = true; // Auto-enable if user starts writing
+                          }
+                          setSlides(updated);
+                        }}
+                        className="flex-1 bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2 text-xs text-stone-200 focus:border-amber-500/50 focus:outline-none"
+                        placeholder="Write subtitle caption displayed on video..."
+                      />
+                      
+                      {slides[currentIndex].caption ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updated = [...slides];
+                            updated[currentIndex].caption = "";
+                            updated[currentIndex].showSubtitle = false;
+                            setSlides(updated);
+                          }}
+                          className="px-3 py-2 bg-stone-950 border border-stone-800 hover:border-rose-500/50 hover:text-rose-400 text-stone-400 rounded-xl text-xs font-mono transition-colors cursor-pointer"
+                          title="Remove Subtitle"
+                        >
+                          Clear
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updated = [...slides];
+                            updated[currentIndex].caption = "A beautiful cinematic scene";
+                            updated[currentIndex].showSubtitle = true;
+                            setSlides(updated);
+                          }}
+                          className="px-3 py-2 bg-amber-500/10 border border-amber-500/30 hover:border-amber-500/60 text-amber-400 rounded-xl text-xs font-mono transition-colors cursor-pointer"
+                          title="Add Subtitle template"
+                        >
+                          Add Preset
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-[9px] text-stone-500 leading-tight">
+                      Disable subtitle visibility to completely hide captions on both live preview and exported videos, or use "Clear" to reset.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Master Timeline & Slides Management List */}
               <div className="bg-stone-900 border border-stone-800 rounded-3xl p-6 shadow-2xl space-y-4">
