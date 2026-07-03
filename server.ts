@@ -1,6 +1,9 @@
 import express from "express";
 import path from "path";
 import dotenv from "dotenv";
+import fs from "fs";
+import os from "os";
+import { exec } from "child_process";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 
@@ -165,6 +168,50 @@ app.post("/api/generate-captions", async (req, res) => {
   } catch (error: any) {
     console.error("Error generating captions:", error);
     res.status(500).json({ error: error.message || "Failed to generate captions" });
+  }
+});
+
+// High-Fidelity WebM to MP4 transcode API via server-side FFmpeg
+app.post("/api/convert-to-mp4", express.raw({ type: "video/webm", limit: "150mb" }), (req, res) => {
+  try {
+    const webmBuffer = req.body;
+    if (!webmBuffer || webmBuffer.length === 0) {
+      return res.status(400).json({ error: "No video data received" });
+    }
+
+    const tempWebmPath = path.join(os.tmpdir(), `input_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.webm`);
+    const tempMp4Path = path.join(os.tmpdir(), `output_${Date.now()}_${Math.random().toString(36).substr(2, 5)}.mp4`);
+
+    fs.writeFile(tempWebmPath, webmBuffer, (err) => {
+      if (err) {
+        console.error("Failed to write temporary webm file:", err);
+        return res.status(500).json({ error: "Failed to process video upload on server" });
+      }
+
+      // Convert WebM to standard MP4 (libx264, standard AAC audio fallback)
+      // We use yuv420p pixel format for supreme compatibility with all standard players (QuickTime, Safari, mobile devices)
+      const ffmpegCmd = `ffmpeg -y -i "${tempWebmPath}" -c:v libx264 -preset ultrafast -crf 22 -pix_fmt yuv420p "${tempMp4Path}"`;
+
+      exec(ffmpegCmd, (execErr, stdout, stderr) => {
+        // Safe clean up of raw source file
+        fs.unlink(tempWebmPath, () => {});
+
+        if (execErr) {
+          console.error("FFmpeg conversion process failed:", execErr);
+          console.error("FFmpeg details stderr:", stderr);
+          return res.status(500).json({ error: "FFmpeg transcode failed: " + execErr.message });
+        }
+
+        // Send the fully converted MP4 file
+        res.download(tempMp4Path, "collage_memory_slideshow.mp4", (downloadErr) => {
+          // Safe clean up of compiled output file
+          fs.unlink(tempMp4Path, () => {});
+        });
+      });
+    });
+  } catch (error: any) {
+    console.error("Error in convert-to-mp4 route:", error);
+    res.status(500).json({ error: error.message || "Internal server error during conversion" });
   }
 });
 
