@@ -100,6 +100,9 @@ export default function App() {
   // Subtitle / Caption Global State
   const [globalShowSubtitles, setGlobalShowSubtitles] = useState<boolean>(true);
 
+  // Transition Preview Trigger State
+  const [previewToggle, setPreviewToggle] = useState<number>(0);
+
   // State History Hooks for Undo / Redo
   const [past, setPast] = useState<VideoSlide[][]>([]);
   const [future, setFuture] = useState<VideoSlide[][]>([]);
@@ -1405,20 +1408,42 @@ export default function App() {
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {/* Thumbnail Preview in inspector */}
-                    <div className="relative aspect-video bg-stone-950 rounded-xl overflow-hidden border border-stone-800 flex items-center justify-center">
-                      <img
-                        src={slides[currentIndex].url}
-                        alt="Inspector Thumbnail"
-                        className={`w-full h-full ${
-                          slides[currentIndex].fitMode === "contain" ? "object-contain" : "object-cover"
-                        }`}
-                        style={{ filter: getFilterCss(slides[currentIndex].filter) }}
-                        referrerPolicy="no-referrer"
-                      />
-                      <span className="absolute bottom-2 left-2 text-[8px] font-mono bg-stone-900/90 text-stone-400 px-1.5 py-0.5 rounded border border-stone-800 uppercase">
+                    {/* Thumbnail Preview in inspector with transition preview */}
+                    <div className="relative aspect-video bg-stone-950 rounded-xl overflow-hidden border border-stone-800 flex items-center justify-center group">
+                      <AnimatePresence mode="wait">
+                        <motion.img
+                          key={`${currentIndex}_${slides[currentIndex].transition}_${previewToggle}`}
+                          src={slides[currentIndex].url}
+                          alt="Inspector Thumbnail"
+                          className={`w-full h-full ${
+                            slides[currentIndex].fitMode === "contain" ? "object-contain" : "object-cover"
+                          }`}
+                          style={{ filter: getFilterCss(slides[currentIndex].filter) }}
+                          referrerPolicy="no-referrer"
+                          {...getMotionAnimation(slides[currentIndex], 1.2)}
+                        />
+                      </AnimatePresence>
+                      
+                      <span className="absolute bottom-2 left-2 text-[8px] font-mono bg-stone-900/95 text-stone-400 px-1.5 py-0.5 rounded border border-stone-800 uppercase pointer-events-none z-10">
                         {slides[currentIndex].fitMode === "contain" ? "Contain" : "Cover"}
                       </span>
+
+                      {/* Floating Active Transition Style Badge */}
+                      <span className="absolute top-2 left-2 text-[8px] font-mono bg-amber-500/90 text-stone-950 px-2 py-0.5 rounded-full font-bold uppercase shadow-sm z-10 pointer-events-none">
+                        Effect: {slides[currentIndex].transition || "zoom"}
+                      </span>
+
+                      {/* Small floating replay preview overlay */}
+                      <button
+                        onClick={() => setPreviewToggle(prev => prev + 1)}
+                        className="absolute inset-0 bg-black/55 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-1.5 text-white text-[10px] font-bold font-mono transition-all duration-200 cursor-pointer z-20"
+                        title="Replay Transition Animation Preview"
+                      >
+                        <span className="p-2 bg-amber-500 hover:scale-110 active:scale-95 text-stone-950 rounded-full shadow-lg transition-transform">
+                          <Play className="w-3.5 h-3.5 fill-stone-950" />
+                        </span>
+                        <span className="bg-stone-950/90 px-2 py-0.5 rounded-lg border border-stone-800 tracking-wider">REPLAY PREVIEW</span>
+                      </button>
                     </div>
 
                     {/* Quick controls */}
