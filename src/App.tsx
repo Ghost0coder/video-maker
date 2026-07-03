@@ -42,7 +42,30 @@ interface VideoSlide {
   zoomMultiplier?: number; // scale adjustment from 0.6 to 2.0
   showSubtitle?: boolean;
   volume?: number; // individual slide volume adjustment (0 to 100, default 100)
+  filter?: "none" | "grayscale" | "sepia" | "vibrant" | "vintage" | "invert" | "warm" | "cool"; // artistic filters
 }
+
+export const getFilterCss = (filter?: string): string => {
+  if (!filter || filter === "none") return "none";
+  switch (filter) {
+    case "grayscale":
+      return "grayscale(100%)";
+    case "sepia":
+      return "sepia(100%)";
+    case "vibrant":
+      return "saturate(180%) contrast(115%)";
+    case "vintage":
+      return "contrast(115%) sepia(35%) saturate(110%)";
+    case "invert":
+      return "invert(100%)";
+    case "warm":
+      return "sepia(20%) saturate(130%)";
+    case "cool":
+      return "contrast(105%) hue-rotate(-10deg) saturate(95%)";
+    default:
+      return "none";
+  }
+};
 
 function getInitialSlides(): VideoSlide[] {
   try {
@@ -731,8 +754,17 @@ export default function App() {
           const renderH = img.height * finalScale;
 
           ctx.save();
+          let filterString = "";
+          if (activeSlide.filter && activeSlide.filter !== "none") {
+            filterString += getFilterCss(activeSlide.filter) + " ";
+          }
           if (blurAmount > 0) {
-            ctx.filter = `blur(${blurAmount}px)`;
+            filterString += `blur(${blurAmount}px) `;
+          }
+          if (filterString.trim()) {
+            ctx.filter = filterString.trim();
+          } else {
+            ctx.filter = "none";
           }
           ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
 
@@ -1055,6 +1087,7 @@ export default function App() {
                             slides[currentIndex].fitMode === "contain" ? "object-contain bg-stone-950" : "object-cover"
                           }`}
                           referrerPolicy="no-referrer"
+                          style={{ filter: getFilterCss(slides[currentIndex].filter) }}
                           {...getMotionAnimation(slides[currentIndex], slides[currentIndex].duration)}
                         />
 
@@ -1380,6 +1413,7 @@ export default function App() {
                         className={`w-full h-full ${
                           slides[currentIndex].fitMode === "contain" ? "object-contain" : "object-cover"
                         }`}
+                        style={{ filter: getFilterCss(slides[currentIndex].filter) }}
                         referrerPolicy="no-referrer"
                       />
                       <span className="absolute bottom-2 left-2 text-[8px] font-mono bg-stone-900/90 text-stone-400 px-1.5 py-0.5 rounded border border-stone-800 uppercase">
@@ -1534,6 +1568,43 @@ export default function App() {
                           </button>
                         ))}
                       </div>
+                    </div>
+                  </div>
+
+                  {/* Artistic Color Filter */}
+                  <div className="border-t border-stone-800/60 pt-4 space-y-2">
+                    <label className="block text-[10px] font-mono uppercase text-stone-400 font-bold flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                      Artistic Color Filter
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {[
+                        { id: "none", name: "Normal", desc: "No Filter" },
+                        { id: "grayscale", name: "Grayscale", desc: "Classic Noir" },
+                        { id: "sepia", name: "Sepia", desc: "Retro Warm" },
+                        { id: "vibrant", name: "Vibrant", desc: "Rich Saturate" },
+                        { id: "vintage", name: "Vintage", desc: "Analog Film" },
+                        { id: "invert", name: "X-Ray", desc: "Invert Art" },
+                        { id: "warm", name: "Sunny", desc: "Golden Hour" },
+                        { id: "cool", name: "Nordic", desc: "Glacier Cool" }
+                      ].map((filt) => (
+                        <button
+                          key={filt.id}
+                          onClick={() => {
+                            const updated = [...slides];
+                            updated[currentIndex].filter = filt.id as any;
+                            setSlides(updated);
+                          }}
+                          className={`flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer ${
+                            (slides[currentIndex].filter || "none") === filt.id
+                              ? "bg-amber-500/10 border-amber-500/40 text-amber-400 font-extrabold"
+                              : "bg-stone-950 border-stone-800/80 text-stone-400 hover:text-stone-300 hover:border-stone-700"
+                          }`}
+                        >
+                          <span className="text-[10px] font-bold tracking-tight">{filt.name}</span>
+                          <span className="text-[8px] opacity-70 font-mono mt-0.5">{filt.desc}</span>
+                        </button>
+                      ))}
                     </div>
                   </div>
 
