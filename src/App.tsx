@@ -56,6 +56,8 @@ interface VideoSlide {
   cameraYaw?: number; // -45 to 45
   parallaxEnabled?: boolean;
   parallaxStrength?: number; // 0 to 100
+  vfxType?: "none" | "lens_flare" | "light_leak" | "film_grain" | "snow" | "rain" | "vhs" | "bokeh";
+  vfxIntensity?: number; // 0 to 100
 }
 
 export const getFilterCss = (filter?: string): string => {
@@ -999,6 +1001,260 @@ export default function App() {
           ctx.fillStyle = shade;
           ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+          // DRAW CINEMATIC SPECIAL EFFECTS (VFX)
+          if (activeSlide.vfxType && activeSlide.vfxType !== "none") {
+            const intensity = activeSlide.vfxIntensity !== undefined ? activeSlide.vfxIntensity : 50;
+
+            if (activeSlide.vfxType === "lens_flare") {
+              ctx.save();
+              ctx.globalCompositeOperation = "screen";
+              const pinX = (activeSlide.anchorX !== undefined ? activeSlide.anchorX : 50) / 100 * canvas.width;
+              const pinY = (activeSlide.anchorY !== undefined ? activeSlide.anchorY : 50) / 100 * canvas.height;
+              
+              // Central flare spark
+              const size = intensity * 4;
+              const flareGrad = ctx.createRadialGradient(pinX, pinY, 0, pinX, pinY, size);
+              flareGrad.addColorStop(0, "rgba(255, 245, 220, 0.95)");
+              flareGrad.addColorStop(0.2, "rgba(245, 158, 11, 0.4)");
+              flareGrad.addColorStop(0.5, "rgba(239, 68, 68, 0.12)");
+              flareGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
+              ctx.fillStyle = flareGrad;
+              ctx.beginPath();
+              ctx.arc(pinX, pinY, size, 0, Math.PI * 2);
+              ctx.fill();
+
+              // Rotated anamorphic light streak
+              ctx.translate(pinX, pinY);
+              ctx.rotate(-12 * Math.PI / 180);
+              const streakGrad = ctx.createLinearGradient(-canvas.width * 1.5, 0, canvas.width * 1.5, 0);
+              streakGrad.addColorStop(0, "rgba(59, 130, 246, 0)");
+              streakGrad.addColorStop(0.2, "rgba(59, 130, 246, 0.35)");
+              streakGrad.addColorStop(0.5, "rgba(255, 255, 255, 0.95)");
+              streakGrad.addColorStop(0.8, "rgba(245, 158, 11, 0.35)");
+              streakGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
+              ctx.fillStyle = streakGrad;
+              ctx.fillRect(-canvas.width * 1.5, -((intensity * 0.12 + 1) / 2), canvas.width * 3, intensity * 0.12 + 1);
+              ctx.restore();
+
+              // Multi-spectral chromatic reflection orbs
+              ctx.save();
+              ctx.globalCompositeOperation = "screen";
+              const orb1X = pinX * 0.7 + canvas.width * 0.15;
+              const orb1Y = pinY * 0.7 + canvas.height * 0.15;
+              const orb1Size = intensity * 0.7 + 15;
+              const orb1Grad = ctx.createRadialGradient(orb1X, orb1Y, 0, orb1X, orb1Y, orb1Size);
+              orb1Grad.addColorStop(0, "rgba(59, 130, 246, 0.18)");
+              orb1Grad.addColorStop(0.6, "rgba(139, 92, 246, 0.06)");
+              orb1Grad.addColorStop(1, "rgba(0, 0, 0, 0)");
+              ctx.fillStyle = orb1Grad;
+              ctx.beginPath();
+              ctx.arc(orb1X, orb1Y, orb1Size, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.strokeStyle = "rgba(59, 130, 246, 0.12)";
+              ctx.lineWidth = 1;
+              ctx.stroke();
+
+              const orb2X = pinX * 0.45 + canvas.width * 0.275;
+              const orb2Y = pinY * 0.45 + canvas.height * 0.275;
+              const orb2Size = intensity * 1.1 + 25;
+              const orb2Grad = ctx.createRadialGradient(orb2X, orb2Y, 0, orb2X, orb2Y, orb2Size);
+              orb2Grad.addColorStop(0, "rgba(239, 68, 68, 0.12)");
+              orb2Grad.addColorStop(0.6, "rgba(245, 158, 11, 0.04)");
+              orb2Grad.addColorStop(1, "rgba(0, 0, 0, 0)");
+              ctx.fillStyle = orb2Grad;
+              ctx.beginPath();
+              ctx.arc(orb2X, orb2Y, orb2Size, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.strokeStyle = "rgba(239, 68, 68, 0.08)";
+              ctx.lineWidth = 1;
+              ctx.stroke();
+              ctx.restore();
+            }
+
+            else if (activeSlide.vfxType === "light_leak") {
+              ctx.save();
+              ctx.globalCompositeOperation = "screen";
+              const alphaVal = (intensity / 100);
+              const angle = ratio * Math.PI * 2;
+              const xOffset = Math.sin(angle) * 40;
+              const yOffset = Math.cos(angle) * 30;
+
+              const leak1Grad = ctx.createRadialGradient(canvas.width * 0.15 + xOffset, canvas.height * 0.15 + yOffset, 0, canvas.width * 0.15 + xOffset, canvas.height * 0.15 + yOffset, canvas.width * 0.5);
+              leak1Grad.addColorStop(0, `rgba(245, 158, 11, ${0.4 * alphaVal})`);
+              leak1Grad.addColorStop(0.4, `rgba(239, 68, 68, ${0.22 * alphaVal})`);
+              leak1Grad.addColorStop(0.7, `rgba(139, 92, 246, ${0.1 * alphaVal})`);
+              leak1Grad.addColorStop(1, "rgba(0,0,0,0)");
+              ctx.fillStyle = leak1Grad;
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+              const leak2Grad = ctx.createRadialGradient(canvas.width * 0.85 - xOffset, canvas.height * 0.85 - yOffset, 0, canvas.width * 0.85 - xOffset, canvas.height * 0.85 - yOffset, canvas.width * 0.45);
+              leak2Grad.addColorStop(0, `rgba(236, 72, 153, ${0.3 * alphaVal})`);
+              leak2Grad.addColorStop(0.4, `rgba(239, 68, 68, ${0.15 * alphaVal})`);
+              leak2Grad.addColorStop(1, "rgba(0,0,0,0)");
+              ctx.fillStyle = leak2Grad;
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+              ctx.restore();
+            }
+
+            else if (activeSlide.vfxType === "film_grain") {
+              ctx.save();
+              const opacity = (intensity / 100) * 0.25;
+
+              // Draw random micro-grain dots
+              ctx.fillStyle = `rgba(255, 255, 255, ${opacity * 0.65})`;
+              for (let i = 0; i < 400; i++) {
+                const gx = Math.random() * canvas.width;
+                const gy = Math.random() * canvas.height;
+                const gw = Math.random() * 2 + 1;
+                ctx.fillRect(gx, gy, gw, gw);
+              }
+              ctx.fillStyle = `rgba(0, 0, 0, ${opacity * 0.55})`;
+              for (let i = 0; i < 400; i++) {
+                const gx = Math.random() * canvas.width;
+                const gy = Math.random() * canvas.height;
+                const gw = Math.random() * 2 + 1;
+                ctx.fillRect(gx, gy, gw, gw);
+              }
+
+              // Random linear vertical scratches
+              if (Math.random() < 0.35) {
+                ctx.strokeStyle = `rgba(255, 255, 255, ${opacity * 1.6})`;
+                ctx.lineWidth = Math.random() * 1.2 + 0.3;
+                ctx.beginPath();
+                const startX = Math.random() * canvas.width;
+                ctx.moveTo(startX, 0);
+                ctx.lineTo(startX + (Math.random() * 10 - 5), canvas.height);
+                ctx.stroke();
+              }
+              if (Math.random() < 0.25) {
+                ctx.strokeStyle = `rgba(0, 0, 0, ${opacity * 1.4})`;
+                ctx.lineWidth = Math.random() * 1.5 + 0.3;
+                ctx.beginPath();
+                const startX = Math.random() * canvas.width;
+                ctx.moveTo(startX, 0);
+                ctx.lineTo(startX + (Math.random() * 12 - 6), canvas.height);
+                ctx.stroke();
+              }
+
+              // Hair dust
+              if (Math.random() < 0.15) {
+                ctx.strokeStyle = "rgba(0, 0, 0, 0.4)";
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                const hx = Math.random() * canvas.width;
+                const hy = Math.random() * canvas.height;
+                ctx.arc(hx, hy, Math.random() * 15 + 5, Math.random() * Math.PI, Math.random() * Math.PI * 2);
+                ctx.stroke();
+              }
+              ctx.restore();
+            }
+
+            else if (activeSlide.vfxType === "snow") {
+              ctx.save();
+              const opacity = (intensity / 100);
+              const numFlakes = 20;
+              ctx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
+              for (let i = 0; i < numFlakes; i++) {
+                const seedX = (i * 120 + 40) % canvas.width;
+                const size = (i % 3 === 0) ? 9 : (i % 3 === 1) ? 6 : 4;
+                const rate = 1.0 + (i % 4) * 0.4;
+                const driftY = ((ratio * rate + (i * 0.05)) % 1.0) * (canvas.height + 40) - 20;
+                const sway = Math.sin(ratio * Math.PI * 2 * 2 + i) * 15;
+                const driftX = seedX + sway;
+
+                ctx.beginPath();
+                ctx.arc(driftX, driftY, size / 2, 0, Math.PI * 2);
+                ctx.fill();
+              }
+              ctx.restore();
+            }
+
+            else if (activeSlide.vfxType === "rain") {
+              ctx.save();
+              const opacity = (intensity / 100);
+              const numDrops = 30;
+              ctx.strokeStyle = `rgba(220, 230, 255, ${opacity * 0.55})`;
+              ctx.lineWidth = 1.8;
+              for (let i = 0; i < numDrops; i++) {
+                const seedX = (i * 90 + 30) % canvas.width;
+                const rate = 1.8 + (i % 3) * 0.6;
+                const driftY = ((ratio * rate + (i * 0.03)) % 1.0) * (canvas.height + 120) - 60;
+                const driftX = seedX - (driftY * 0.22);
+
+                ctx.beginPath();
+                ctx.moveTo(driftX, driftY);
+                ctx.lineTo(driftX + 12, driftY + 60);
+                ctx.stroke();
+              }
+              ctx.restore();
+            }
+
+            else if (activeSlide.vfxType === "vhs") {
+              ctx.save();
+              const opacity = (intensity / 100);
+
+              // Draw VHS Scanlines
+              ctx.fillStyle = `rgba(0, 0, 0, ${opacity * 0.08})`;
+              for (let y = 0; y < canvas.height; y += 4) {
+                ctx.fillRect(0, y, canvas.width, 2);
+              }
+
+              // Draw VHS Tracking bar
+              const rollY = (ratio * 1.5 % 1.0) * canvas.height;
+              ctx.fillStyle = `rgba(255, 255, 255, ${opacity * 0.12})`;
+              ctx.fillRect(0, rollY, canvas.width, 30);
+              ctx.fillStyle = `rgba(0, 0, 0, ${opacity * 0.15})`;
+              ctx.fillRect(0, rollY + 30, canvas.width, 6);
+
+              // Occasional screen shaking line glitch
+              if (Math.random() < 0.18) {
+                ctx.fillStyle = `rgba(255, 255, 255, ${opacity * 0.25})`;
+                ctx.fillRect(0, Math.random() * canvas.height, canvas.width, Math.random() * 4);
+              }
+
+              // VCR overlay text
+              ctx.fillStyle = "rgba(74, 222, 128, 0.75)";
+              ctx.font = "bold 16px Courier New, monospace";
+              ctx.textAlign = "left";
+              ctx.fillText("PLAY ▷", 30, canvas.height - 30);
+              ctx.textAlign = "right";
+              const padVal = (n: number) => String(n).padStart(2, "0");
+              const secVal = Math.floor(ratio * (activeSlide.duration || 5));
+              ctx.fillText(`00:00:${padVal(secVal)}`, canvas.width - 30, canvas.height - 30);
+              ctx.restore();
+            }
+
+            else if (activeSlide.vfxType === "bokeh") {
+              ctx.save();
+              ctx.globalCompositeOperation = "screen";
+              const opacity = (intensity / 100) * 0.85;
+              const numBubbles = 15;
+
+              for (let i = 0; i < numBubbles; i++) {
+                const seedX = (i * 135 + 65) % canvas.width;
+                const size = (i % 3 === 0) ? 44 : (i % 3 === 1) ? 60 : 28;
+                const rate = 0.5 + (i % 3) * 0.15;
+                const driftY = (1.0 - ((ratio * rate + (i * 0.08)) % 1.0)) * (canvas.height + 80) - 40;
+                const sway = Math.sin(ratio * Math.PI * 2 + i) * 20;
+
+                const grad = ctx.createRadialGradient(seedX + sway, driftY, 0, seedX + sway, driftY, size / 2);
+                grad.addColorStop(0, `rgba(245, 158, 11, ${0.22 * opacity})`);
+                grad.addColorStop(0.6, `rgba(245, 158, 11, ${0.06 * opacity})`);
+                grad.addColorStop(1, "rgba(0, 0, 0, 0)");
+                
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(seedX + sway, driftY, size / 2, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.strokeStyle = `rgba(245, 158, 11, ${0.08 * opacity})`;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+              }
+              ctx.restore();
+            }
+          }
+
           // Draw beautiful movie subtitle captions at bottom
           if (globalShowSubtitles && activeSlide.showSubtitle !== false && activeSlide.caption) {
             ctx.fillStyle = "rgba(9, 5, 4, 0.85)";
@@ -1423,6 +1679,205 @@ export default function App() {
                           }}
                           {...getMotionAnimation(slides[currentIndex], slides[currentIndex].duration)}
                         />
+
+                        {/* LIVE PREVIEW VISUAL EFFECTS (VFX) */}
+                        {slides[currentIndex].vfxType && slides[currentIndex].vfxType !== "none" && (
+                          <>
+                            {/* VFX: Lens Flare */}
+                            {slides[currentIndex].vfxType === "lens_flare" && (
+                              <div className="absolute inset-0 z-12 pointer-events-none mix-blend-screen overflow-hidden">
+                                <div 
+                                  className="absolute rounded-full"
+                                  style={{
+                                    left: `${slides[currentIndex].anchorX !== undefined ? slides[currentIndex].anchorX : 50}%`,
+                                    top: `${slides[currentIndex].anchorY !== undefined ? slides[currentIndex].anchorY : 50}%`,
+                                    width: `${(slides[currentIndex].vfxIntensity || 50) * 4}px`,
+                                    height: `${(slides[currentIndex].vfxIntensity || 50) * 4}px`,
+                                    transform: "translate(-50%, -50%)",
+                                    background: "radial-gradient(circle, rgba(255, 245, 220, 0.95) 0%, rgba(245, 158, 11, 0.4) 25%, rgba(239, 68, 68, 0.12) 55%, rgba(0, 0, 0, 0) 70%)",
+                                    filter: "blur(2px)"
+                                  }}
+                                />
+                                <div 
+                                  className="absolute"
+                                  style={{
+                                    left: `${slides[currentIndex].anchorX !== undefined ? slides[currentIndex].anchorX : 50}%`,
+                                    top: `${slides[currentIndex].anchorY !== undefined ? slides[currentIndex].anchorY : 50}%`,
+                                    width: "300%",
+                                    height: `${(slides[currentIndex].vfxIntensity || 50) * 0.12 + 1}px`,
+                                    transform: "translate(-50%, -50%) rotate(-12deg)",
+                                    background: "linear-gradient(90deg, rgba(59,130,246,0) 0%, rgba(59,130,246,0.35) 20%, rgba(255,255,255,0.95) 50%, rgba(245,158,11,0.35) 80%, rgba(245,158,11,0) 100%)",
+                                    opacity: (slides[currentIndex].vfxIntensity || 50) / 100
+                                  }}
+                                />
+                                <div 
+                                  className="absolute rounded-full"
+                                  style={{
+                                    left: `${(slides[currentIndex].anchorX !== undefined ? slides[currentIndex].anchorX : 50) * 0.7 + 15}%`,
+                                    top: `${(slides[currentIndex].anchorY !== undefined ? slides[currentIndex].anchorY : 50) * 0.7 + 15}%`,
+                                    width: `${(slides[currentIndex].vfxIntensity || 50) * 0.7 + 15}px`,
+                                    height: `${(slides[currentIndex].vfxIntensity || 50) * 0.7 + 15}px`,
+                                    transform: "translate(-50%, -50%)",
+                                    background: "radial-gradient(circle, rgba(59,130,246,0.18) 0%, rgba(139,92,246,0.06) 60%, rgba(0,0,0,0) 100%)",
+                                    border: "1px solid rgba(59,130,246,0.12)",
+                                    opacity: (slides[currentIndex].vfxIntensity || 50) / 100
+                                  }}
+                                />
+                                <div 
+                                  className="absolute rounded-full"
+                                  style={{
+                                    left: `${(slides[currentIndex].anchorX !== undefined ? slides[currentIndex].anchorX : 50) * 0.45 + 27.5}%`,
+                                    top: `${(slides[currentIndex].anchorY !== undefined ? slides[currentIndex].anchorY : 50) * 0.45 + 27.5}%`,
+                                    width: `${(slides[currentIndex].vfxIntensity || 50) * 1.1 + 25}px`,
+                                    height: `${(slides[currentIndex].vfxIntensity || 50) * 1.1 + 25}px`,
+                                    transform: "translate(-50%, -50%)",
+                                    background: "radial-gradient(circle, rgba(239,68,68,0.12) 0%, rgba(245,158,11,0.04) 65%, rgba(0,0,0,0) 100%)",
+                                    border: "1px solid rgba(239,68,68,0.08)",
+                                    opacity: (slides[currentIndex].vfxIntensity || 50) / 100
+                                  }}
+                                />
+                              </div>
+                            )}
+
+                            {/* VFX: Light Leak */}
+                            {slides[currentIndex].vfxType === "light_leak" && (
+                              <div className="absolute inset-0 z-12 pointer-events-none mix-blend-screen overflow-hidden">
+                                <div 
+                                  className="absolute inset-0 animate-light-leak"
+                                  style={{
+                                    background: "radial-gradient(circle at 15% 15%, rgba(245, 158, 11, 0.4) 0%, rgba(239, 68, 68, 0.22) 30%, rgba(139, 92, 246, 0.1) 50%, rgba(0, 0, 0, 0) 80%), radial-gradient(circle at 85% 85%, rgba(236, 72, 153, 0.3) 0%, rgba(239, 68, 68, 0.15) 35%, rgba(0, 0, 0, 0) 70%)",
+                                    opacity: (slides[currentIndex].vfxIntensity || 50) / 100
+                                  }}
+                                />
+                              </div>
+                            )}
+
+                            {/* VFX: Film Grain & Vintage Noise */}
+                            {slides[currentIndex].vfxType === "film_grain" && (
+                              <div className="absolute inset-0 z-12 pointer-events-none overflow-hidden select-none">
+                                <div 
+                                  className="absolute -inset-[20%] animate-film-grain bg-repeat"
+                                  style={{
+                                    backgroundImage: "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E\")",
+                                    opacity: ((slides[currentIndex].vfxIntensity || 50) / 100) * 0.16
+                                  }}
+                                />
+                                <div className="absolute inset-0 opacity-40">
+                                  <div className="absolute w-[1px] h-12 bg-white/40 left-[25%] top-[15%] rotate-[5deg] animate-[pulse_0.15s_infinite]" />
+                                  <div className="absolute w-[1.5px] h-6 bg-stone-900/40 left-[72%] top-[48%] -rotate-[12deg] animate-[pulse_0.23s_infinite]" />
+                                  <div className="absolute w-2 h-2 rounded-full bg-white/30 left-[45%] top-[80%] animate-[pulse_0.08s_infinite]" />
+                                </div>
+                              </div>
+                            )}
+
+                            {/* VFX: Cozy Snow Particle Drift */}
+                            {slides[currentIndex].vfxType === "snow" && (
+                              <div className="absolute inset-0 z-12 pointer-events-none overflow-hidden select-none">
+                                {[...Array(15)].map((_, i) => {
+                                  const left = (i * 7.5 + (i % 3) * 5) % 100;
+                                  const delay = (i * 0.35).toFixed(2);
+                                  const duration = (3.0 + (i % 4) * 0.95).toFixed(2);
+                                  return (
+                                    <div
+                                      key={i}
+                                      className="absolute bg-white rounded-full animate-drift-snow"
+                                      style={{
+                                        left: `${left}%`,
+                                        top: `-15px`,
+                                        width: i % 3 === 0 ? "10px" : i % 3 === 1 ? "6px" : "4px",
+                                        height: i % 3 === 0 ? "10px" : i % 3 === 1 ? "6px" : "4px",
+                                        opacity: ((slides[currentIndex].vfxIntensity || 50) / 100) * (i % 2 === 0 ? 0.8 : 0.5),
+                                        animationDelay: `${delay}s`,
+                                        animationDuration: `${duration}s`,
+                                        filter: i % 3 === 0 ? "blur(1px)" : "none"
+                                      }}
+                                    />
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            {/* VFX: Cinematic Raindrops */}
+                            {slides[currentIndex].vfxType === "rain" && (
+                              <div className="absolute inset-0 z-12 pointer-events-none overflow-hidden select-none">
+                                {[...Array(20)].map((_, i) => {
+                                  const left = (i * 6 + (i % 4) * 7) % 100;
+                                  const delay = (i * 0.12).toFixed(2);
+                                  const duration = (0.5 + (i % 3) * 0.15).toFixed(2);
+                                  return (
+                                    <div
+                                      key={i}
+                                      className="absolute bg-gradient-to-b from-white/30 to-white/0 rounded-full animate-drift-rain"
+                                      style={{
+                                        left: `${left}%`,
+                                        top: `-80px`,
+                                        width: "1.5px",
+                                        height: "60px",
+                                        opacity: ((slides[currentIndex].vfxIntensity || 50) / 100) * 0.6,
+                                        animationDelay: `${delay}s`,
+                                        animationDuration: `${duration}s`,
+                                      }}
+                                    />
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            {/* VFX: VHS Vintage Analog Scanlines & Glitch */}
+                            {slides[currentIndex].vfxType === "vhs" && (
+                              <div className="absolute inset-0 z-12 pointer-events-none overflow-hidden select-none animate-vhs-flicker">
+                                <div 
+                                  className="absolute inset-0 opacity-[0.25]"
+                                  style={{
+                                    backgroundImage: "linear-gradient(to bottom, rgba(0,0,0,0.85) 50%, rgba(255,255,255,0.08) 50%)",
+                                    backgroundSize: "100% 4px",
+                                    opacity: ((slides[currentIndex].vfxIntensity || 50) / 100) * 0.35
+                                  }}
+                                />
+                                <div 
+                                  className="absolute w-full h-8 bg-white/10 blur-[2px] animate-vhs-roll"
+                                  style={{
+                                    opacity: ((slides[currentIndex].vfxIntensity || 50) / 100) * 0.25
+                                  }}
+                                />
+                                <div className="absolute bottom-0 left-0 right-0 h-4 bg-stone-900/60 flex items-center justify-between select-none px-2 opacity-50 text-[6px] font-mono font-bold tracking-wider text-green-400">
+                                  <span>PLAY ▷</span>
+                                  <span>0:04:12</span>
+                                  <span>VCR-240p</span>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* VFX: Dreamy Floating Bokeh Orbs */}
+                            {slides[currentIndex].vfxType === "bokeh" && (
+                              <div className="absolute inset-0 z-12 pointer-events-none overflow-hidden select-none">
+                                {[...Array(12)].map((_, i) => {
+                                  const left = (i * 9 + (i % 3) * 8) % 100;
+                                  const delay = (i * 0.45).toFixed(2);
+                                  const duration = (5.0 + (i % 3) * 1.5).toFixed(2);
+                                  return (
+                                    <div
+                                      key={i}
+                                      className="absolute rounded-full animate-float-bokeh"
+                                      style={{
+                                        left: `${left}%`,
+                                        bottom: `-40px`,
+                                        width: i % 3 === 0 ? "32px" : i % 3 === 1 ? "48px" : "20px",
+                                        height: i % 3 === 0 ? "32px" : i % 3 === 1 ? "48px" : "20px",
+                                        background: "radial-gradient(circle, rgba(245,158,11,0.22) 0%, rgba(245,158,11,0.06) 65%, rgba(0,0,0,0) 100%)",
+                                        opacity: ((slides[currentIndex].vfxIntensity || 50) / 100) * 0.85,
+                                        animationDelay: `${delay}s`,
+                                        animationDuration: `${duration}s`,
+                                        filter: "blur(2px)",
+                                        border: "1px solid rgba(245,158,11,0.08)"
+                                      }}
+                                    />
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </>
+                        )}
 
                         {/* Live Masking Overlay */}
                         {slides[currentIndex].maskType && slides[currentIndex].maskType !== "none" && (
@@ -2515,6 +2970,75 @@ export default function App() {
                           ⚡ Anchor Focus Pin sets the optical pivot point. Parallax mimics a stereoscopic camera lens, drifting foreground details to add rich 3D perspective to standard 2D photos.
                         </div>
                       </div>
+                    </div>
+
+                    {/* Sub-Panel 5: Cinematic Special Effects Overlay (VFX) */}
+                    <div className="bg-stone-950 p-4 rounded-2xl border border-stone-800/80 space-y-3.5 mt-4">
+                      <div className="flex items-center justify-between border-b border-stone-800/55 pb-2">
+                        <div className="flex items-center gap-2">
+                          <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+                          <span className="text-[10px] font-bold text-stone-200 font-mono uppercase">5. Cinematic Visual Effects (VFX) Overlays</span>
+                        </div>
+                        <span className="text-[8px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded font-mono font-bold uppercase border border-amber-500/20 animate-pulse">
+                          Active VFX Studio
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[9px] text-stone-400 uppercase font-mono mb-1.5">Choose VFX Overlay Style</label>
+                          <select
+                            value={(slides[currentIndex] && slides[currentIndex].vfxType) || "none"}
+                            onChange={(e) => {
+                              const updated = [...slides];
+                              updated[currentIndex].vfxType = e.target.value as any;
+                              if (updated[currentIndex].vfxIntensity === undefined) {
+                                updated[currentIndex].vfxIntensity = 50;
+                              }
+                              setSlides(updated);
+                            }}
+                            className="w-full bg-stone-900 border border-stone-800 rounded-xl px-3 py-2 text-xs text-stone-200 focus:border-amber-500/50 focus:outline-none cursor-pointer"
+                          >
+                            <option value="none">✨ No VFX Overlay</option>
+                            <option value="lens_flare">🎥 Anamorphic Lens Flare (Focal Based)</option>
+                            <option value="light_leak">🔥 Vintage Projector Light Leak Sweep</option>
+                            <option value="film_grain">🎞️ 35mm Analog Film Grain & Dust Scratches</option>
+                            <option value="snow">❄️ Cozy Atmospheric Winter Snowfall</option>
+                            <option value="rain">🌧️ Dramatic Cinematic Rain Shower</option>
+                            <option value="vhs">📼 Retro 80s VHS Video Tape scanlines</option>
+                            <option value="bokeh">🟡 Soft Golden Floating Bokeh Bubbles</option>
+                          </select>
+                        </div>
+
+                        {slides[currentIndex] && slides[currentIndex].vfxType && slides[currentIndex].vfxType !== "none" && (
+                          <div className="space-y-1.5">
+                            <div className="flex justify-between items-center text-[10px]">
+                              <span className="text-stone-400 uppercase font-mono">VFX Intensity / Scale</span>
+                              <span className="text-amber-500 font-bold font-mono">{slides[currentIndex].vfxIntensity || 50}%</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="10"
+                              max="100"
+                              value={slides[currentIndex].vfxIntensity || 50}
+                              onChange={(e) => {
+                                const updated = [...slides];
+                                updated[currentIndex].vfxIntensity = Number(e.target.value);
+                                setSlides(updated);
+                              }}
+                              className="w-full accent-amber-500 cursor-pointer h-1.5 bg-stone-900 rounded-lg appearance-none mt-1"
+                            />
+                            <div className="flex justify-between text-[8px] font-mono text-stone-500">
+                              <span>10% (Subtle Accent)</span>
+                              <span>50% (Standard)</span>
+                              <span>100% (High Density)</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-[9px] text-stone-500 leading-tight">
+                        ✨ Pro Tip: The Lens Flare effect will automatically align to your chosen **Anchor Focus Pin** on the slide, creating gorgeous focal perspective. Light Leak and VHS effects add rich nostalgia to historic memories.
+                      </p>
                     </div>
                   </div>
                 </div>
