@@ -1,0 +1,6 @@
+{
+  "name": "Collage Video Maker",
+  "description": "Transform photo collages into dynamic cinematic video slideshows with AI slicing, animated transitions, customizable background music, and direct video export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
