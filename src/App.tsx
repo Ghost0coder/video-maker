@@ -50,6 +50,9 @@ export default function App() {
   // Video Global Aspect Ratio State
   const [videoAspectRatio, setVideoAspectRatio] = useState<"16:9" | "9:16" | "1:1" | "4:3">("16:9");
 
+  // Export Resolution State
+  const [exportResolution, setExportResolution] = useState<"720p" | "1080p" | "4k" | "8k">("1080p");
+
   // Subtitle / Caption Global State
   const [globalShowSubtitles, setGlobalShowSubtitles] = useState<boolean>(true);
 
@@ -328,19 +331,68 @@ export default function App() {
 
     try {
       const canvas = document.createElement("canvas");
-      // Choose dimensions based on selected aspect ratio
-      let canvasW = 1280;
-      let canvasH = 720;
-      if (videoAspectRatio === "9:16") {
-        canvasW = 720;
-        canvasH = 1280;
+      // Choose dimensions based on selected aspect ratio and export resolution preset (720p, 1080p, 4k, 8k)
+      let canvasW = 1920;
+      let canvasH = 1080;
+
+      if (videoAspectRatio === "16:9") {
+        if (exportResolution === "720p") {
+          canvasW = 1280;
+          canvasH = 720;
+        } else if (exportResolution === "1080p") {
+          canvasW = 1920;
+          canvasH = 1080;
+        } else if (exportResolution === "4k") {
+          canvasW = 3840;
+          canvasH = 2160;
+        } else if (exportResolution === "8k") {
+          canvasW = 7680;
+          canvasH = 4320;
+        }
+      } else if (videoAspectRatio === "9:16") {
+        if (exportResolution === "720p") {
+          canvasW = 720;
+          canvasH = 1280;
+        } else if (exportResolution === "1080p") {
+          canvasW = 1080;
+          canvasH = 1920;
+        } else if (exportResolution === "4k") {
+          canvasW = 2160;
+          canvasH = 3840;
+        } else if (exportResolution === "8k") {
+          canvasW = 4320;
+          canvasH = 7680;
+        }
       } else if (videoAspectRatio === "1:1") {
-        canvasW = 1000;
-        canvasH = 1000;
+        if (exportResolution === "720p") {
+          canvasW = 720;
+          canvasH = 720;
+        } else if (exportResolution === "1080p") {
+          canvasW = 1080;
+          canvasH = 1080;
+        } else if (exportResolution === "4k") {
+          canvasW = 2160;
+          canvasH = 2160;
+        } else if (exportResolution === "8k") {
+          canvasW = 4320;
+          canvasH = 4320;
+        }
       } else if (videoAspectRatio === "4:3") {
-        canvasW = 960;
-        canvasH = 720;
+        if (exportResolution === "720p") {
+          canvasW = 960;
+          canvasH = 720;
+        } else if (exportResolution === "1080p") {
+          canvasW = 1440;
+          canvasH = 1080;
+        } else if (exportResolution === "4k") {
+          canvasW = 2880;
+          canvasH = 2160;
+        } else if (exportResolution === "8k") {
+          canvasW = 5760;
+          canvasH = 4320;
+        }
       }
+
       canvas.width = canvasW;
       canvas.height = canvasH;
       const ctx = canvas.getContext("2d");
@@ -787,7 +839,7 @@ export default function App() {
                   </div>
 
                   {/* Primary Video Player Buttons */}
-                  <div className="flex items-center justify-between pt-1">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between pt-1 gap-4">
                     <div className="flex items-center gap-3">
                       <button
                         onClick={() => setIsPlaying(!isPlaying)}
@@ -819,23 +871,41 @@ export default function App() {
                       </span>
                     </div>
 
-                    <button
-                      onClick={exportHighDefinitionVideo}
-                      disabled={isExporting || slides.length === 0}
-                      className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-stone-950 hover:scale-[1.02] rounded-xl text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shadow-lg shadow-amber-500/10"
-                    >
-                      {isExporting ? (
-                        <>
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                          Compiling {exportProgress}%
-                        </>
-                      ) : (
-                        <>
-                          <Download className="w-4 h-4" />
-                          Compile & Download Video
-                        </>
-                      )}
-                    </button>
+                    {/* Quality resolution selector and compile button */}
+                    <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                      <div className="relative">
+                        <select
+                          value={exportResolution}
+                          onChange={(e) => setExportResolution(e.target.value as any)}
+                          className="bg-stone-950 border border-stone-800 hover:border-stone-700 rounded-xl px-3 py-2 text-xs text-stone-300 focus:border-amber-500/50 focus:outline-none cursor-pointer font-mono font-bold h-11"
+                          disabled={isExporting}
+                          title="Select export resolution"
+                        >
+                          <option value="720p">720p HD</option>
+                          <option value="1080p">1080p FHD</option>
+                          <option value="4k">4K UHD</option>
+                          <option value="8k">8K Cinema</option>
+                        </select>
+                      </div>
+
+                      <button
+                        onClick={exportHighDefinitionVideo}
+                        disabled={isExporting || slides.length === 0}
+                        className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-stone-950 hover:scale-[1.02] rounded-xl text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shadow-lg shadow-amber-500/10 h-11"
+                      >
+                        {isExporting ? (
+                          <>
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                            <span>{exportProgress}%</span>
+                          </>
+                        ) : (
+                          <>
+                            <Download className="w-4 h-4" />
+                            <span>Compile & Download</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
