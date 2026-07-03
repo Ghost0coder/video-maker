@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, ChangeEvent, DragEvent } from "react";
+import { useState, useRef, useEffect, useCallback, ChangeEvent, DragEvent } from "react";
 import {
   Upload,
   Play,
@@ -24,7 +24,9 @@ import {
   Layers,
   Sparkle,
   Copy,
-  FolderOpen
+  FolderOpen,
+  Undo,
+  Redo
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { CollegeMelodyGenerator } from "./utils";
@@ -39,13 +41,32 @@ interface VideoSlide {
   fitMode?: "cover" | "contain";
   zoomMultiplier?: number; // scale adjustment from 0.6 to 2.0
   showSubtitle?: boolean;
+  volume?: number; // individual slide volume adjustment (0 to 100, default 100)
+}
+
+function getInitialSlides(): VideoSlide[] {
+  try {
+    const saved = localStorage.getItem("cinematic_slides_data");
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.error("Error reading slides from localStorage", e);
+  }
+  return [];
 }
 
 export default function App() {
   // Timeline Slides State
-  const [slides, setSlides] = useState<VideoSlide[]>([]);
+  const [slides, setSlides] = useState<VideoSlide[]>(getInitialSlides);
   const [currentIndex, setCurrentIndex] = useState<number>(0);
-  const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
+  const [selectedSlideId, setSelectedSlideId] = useState<string | null>(() => {
+    const initial = getInitialSlides();
+    return initial.length > 0 ? initial[0].id : null;
+  });
   
   // Video Global Aspect Ratio State
   const [videoAspectRatio, setVideoAspectRatio] = useState<"16:9" | "9:16" | "1:1" | "4:3">("16:9");
@@ -55,6 +76,118 @@ export default function App() {
 
   // Subtitle / Caption Global State
   const [globalShowSubtitles, setGlobalShowSubtitles] = useState<boolean>(true);
+
+  // State History Hooks for Undo / Redo
+  const [past, setPast] = useState<VideoSlide[][]>([]);
+  const [future, setFuture] = useState<VideoSlide[][]>([]);
+  const isUndoRedoActionRef = useRef<boolean>(false);
+  const prevSlidesRef = useRef<VideoSlide[]>(getInitialSlides());
+
+  // Auto-sync slides to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem("cinematic_slides_data", JSON.stringify(slides));
+    } catch (e) {
+      console.error("Failed to save slides to localStorage", e);
+    }
+  }, [slides]);
+
+  // Intercept changes to slides to automatically save history
+  useEffect(() => {
+    if (isUndoRedoActionRef.current) {
+      isUndoRedoActionRef.current = false;
+      prevSlidesRef.current = slides;
+      return;
+    }
+
+    const currentStr = JSON.stringify(slides);
+    const prevStr = JSON.stringify(prevSlidesRef.current);
+
+    if (currentStr !== prevStr) {
+      // If we have an existing previous state, save it to history
+      if (prevSlidesRef.current && (prevSlidesRef.current.length > 0 || slides.length > 0)) {
+        setPast((prevPast) => [...prevPast.slice(-29), prevSlidesRef.current]);
+        setFuture([]); // Reset redo stack on new user action
+      }
+      prevSlidesRef.current = slides;
+    }
+  }, [slides]);
+
+  // Undo Action
+  const handleUndo = useCallback(() => {
+    if (past.length === 0) return;
+    isUndoRedoActionRef.current = true;
+
+    const previous = past[past.length - 1];
+    const newPast = past.slice(0, past.length - 1);
+
+    setPast(newPast);
+    setFuture((prevFuture) => [slides, ...prevFuture]);
+    setSlides(previous);
+
+    // Keep active indices in bounds
+    if (previous.length > 0) {
+      setCurrentIndex((prevIdx) => Math.min(prevIdx, previous.length - 1));
+    } else {
+      setCurrentIndex(0);
+    }
+  }, [past, slides]);
+
+  // Redo Action
+  const handleRedo = useCallback(() => {
+    if (future.length === 0) return;
+    isUndoRedoActionRef.current = true;
+
+    const next = future[0];
+    const newFuture = future.slice(1);
+
+    setPast((prevPast) => [...prevPast, slides]);
+    setFuture(newFuture);
+    setSlides(next);
+
+    if (next.length > 0) {
+      setCurrentIndex((prevIdx) => Math.min(prevIdx, next.length - 1));
+    } else {
+      setCurrentIndex(0);
+    }
+  }, [future, slides]);
+
+  // Keyboard Shortcuts for Undo/Redo
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      if (
+        activeEl &&
+        (activeEl.tagName === "INPUT" ||
+          activeEl.tagName === "TEXTAREA" ||
+          (activeEl as HTMLElement).isContentEditable)
+      ) {
+        return; // Don't interrupt native input undo/redo
+      }
+
+      const isModKey = e.ctrlKey || e.metaKey;
+
+      if (isModKey && !e.altKey) {
+        const key = e.key.toLowerCase();
+        if (key === "z") {
+          e.preventDefault();
+          if (e.shiftKey) {
+            handleRedo();
+          } else {
+            handleUndo();
+          }
+        } else if (key === "y") {
+          e.preventDefault();
+          handleRedo();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [handleUndo, handleRedo]);
 
   // Video Playback State
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -66,6 +199,25 @@ export default function App() {
   const [uploadedAudioName, setUploadedAudioName] = useState<string>("");
   const [synthesizer] = useState(() => new CollegeMelodyGenerator());
   const [activeSoundtrackType, setActiveSoundtrackType] = useState<"none" | "synth" | "custom">("none");
+
+  // Audio Fading States
+  const [audioFadeInDuration, setAudioFadeInDuration] = useState<number>(() => {
+    const saved = localStorage.getItem("cinematic_fade_in_duration");
+    return saved ? Number(saved) : 1.5;
+  });
+  const [audioFadeOutDuration, setAudioFadeOutDuration] = useState<number>(() => {
+    const saved = localStorage.getItem("cinematic_fade_out_duration");
+    return saved ? Number(saved) : 2.0;
+  });
+
+  // Sync fading durations to localStorage
+  useEffect(() => {
+    localStorage.setItem("cinematic_fade_in_duration", String(audioFadeInDuration));
+  }, [audioFadeInDuration]);
+
+  useEffect(() => {
+    localStorage.setItem("cinematic_fade_out_duration", String(audioFadeOutDuration));
+  }, [audioFadeOutDuration]);
 
   // Drag-and-drop state
   const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
@@ -105,6 +257,74 @@ export default function App() {
       }
     };
   }, [isPlaying, isMuted, activeSoundtrackType, uploadedAudioSrc]);
+
+  // Dynamic Volume Adjuster (Volume fade-in, fade-out, individual slide volumes)
+  useEffect(() => {
+    if (!isPlaying) {
+      synthesizer.volumeMultiplier = isMuted ? 0 : 1.0;
+      if (audioRef.current) {
+        audioRef.current.volume = isMuted ? 0 : 1.0;
+      }
+      return;
+    }
+
+    if (isMuted) {
+      synthesizer.volumeMultiplier = 0;
+      if (audioRef.current) {
+        audioRef.current.volume = 0;
+      }
+      return;
+    }
+
+    const currentSlide = slides[currentIndex];
+    if (!currentSlide) return;
+
+    // Calculate elapsed time of entire slideshow
+    const totalSlideshowDuration = slides.reduce((acc, curr) => acc + (curr.duration || 3), 0);
+    const currentSlideDuration = currentSlide.duration || 3;
+    const currentSlideElapsedTime = (progress / 100) * currentSlideDuration;
+
+    let slideshowElapsedTime = 0;
+    for (let i = 0; i < currentIndex; i++) {
+      slideshowElapsedTime += (slides[i].duration || 3);
+    }
+    slideshowElapsedTime += currentSlideElapsedTime;
+
+    // 1. Slide-specific volume adjustment
+    const slideVolumeMultiplier = currentSlide.volume !== undefined ? currentSlide.volume / 100 : 1.0;
+
+    // 2. Fade-in multiplier at the beginning of slideshow
+    let fadeInMultiplier = 1.0;
+    if (audioFadeInDuration > 0) {
+      fadeInMultiplier = Math.min(1.0, slideshowElapsedTime / audioFadeInDuration);
+    }
+
+    // 3. Fade-out multiplier at the end of slideshow
+    let fadeOutMultiplier = 1.0;
+    if (audioFadeOutDuration > 0) {
+      const remainingTime = totalSlideshowDuration - slideshowElapsedTime;
+      fadeOutMultiplier = Math.min(1.0, Math.max(0, remainingTime / audioFadeOutDuration));
+    }
+
+    const calculatedVolume = Math.max(0, Math.min(1, slideVolumeMultiplier * fadeInMultiplier * fadeOutMultiplier));
+
+    // Apply calculated volume
+    if (activeSoundtrackType === "custom" && audioRef.current) {
+      audioRef.current.volume = calculatedVolume;
+    } else if (activeSoundtrackType === "synth") {
+      synthesizer.volumeMultiplier = calculatedVolume;
+    }
+  }, [
+    isPlaying,
+    isMuted,
+    activeSoundtrackType,
+    currentIndex,
+    progress,
+    slides,
+    audioFadeInDuration,
+    audioFadeOutDuration,
+    synthesizer
+  ]);
 
   // Synchronize dynamic preview slides transition timer
   useEffect(() => {
@@ -657,6 +877,39 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Undo / Redo controls */}
+            <div className="flex items-center gap-1 bg-stone-900 border border-stone-850 p-1.5 rounded-xl mr-1">
+              <button
+                onClick={handleUndo}
+                disabled={past.length === 0}
+                className={`p-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                  past.length > 0
+                    ? "text-stone-200 hover:text-amber-400 hover:bg-stone-800"
+                    : "text-stone-600 cursor-not-allowed opacity-30"
+                }`}
+                title="Undo (Ctrl+Z)"
+              >
+                <Undo className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline text-[10px] font-mono">Undo ({past.length})</span>
+              </button>
+              
+              <div className="w-[1px] h-3.5 bg-stone-800/80 mx-1" />
+              
+              <button
+                onClick={handleRedo}
+                disabled={future.length === 0}
+                className={`p-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                  future.length > 0
+                    ? "text-stone-200 hover:text-amber-400 hover:bg-stone-800"
+                    : "text-stone-600 cursor-not-allowed opacity-30"
+                }`}
+                title="Redo (Ctrl+Y)"
+              >
+                <Redo className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline text-[10px] font-mono">Redo ({future.length})</span>
+              </button>
+            </div>
+
             <button
               onClick={loadDemoProject}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-stone-900 border border-stone-800 hover:border-amber-500/30 text-stone-200 transition-all cursor-pointer shadow"
@@ -1050,6 +1303,58 @@ export default function App() {
                       <audio ref={audioRef} src={uploadedAudioSrc} loop />
                     )}
                   </div>
+
+                  {/* Slideshow Audio Fading Controls */}
+                  <div className="pt-4 border-t border-stone-800/80 space-y-3">
+                    <div className="flex items-center justify-between text-[10px] font-mono text-stone-400">
+                      <span>SLIDESHOW AUDIO FADING CONTROLS</span>
+                      <span className="text-amber-500 font-bold uppercase text-[9px] tracking-wider">Fade effects</span>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="bg-stone-950 p-3 rounded-xl border border-stone-850 space-y-1.5">
+                        <div className="flex justify-between text-[10px] font-mono">
+                          <span className="text-stone-400">Fade-In (Start):</span>
+                          <span className="text-amber-500 font-bold">{audioFadeInDuration.toFixed(1)}s</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="8"
+                          step="0.5"
+                          value={audioFadeInDuration}
+                          onChange={(e) => setAudioFadeInDuration(Number(e.target.value))}
+                          className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-900 rounded-lg appearance-none"
+                          title="Fade-in duration at slideshow start"
+                        />
+                        <div className="flex justify-between text-[8px] font-mono text-stone-600">
+                          <span>0s (Off)</span>
+                          <span>8s</span>
+                        </div>
+                      </div>
+
+                      <div className="bg-stone-950 p-3 rounded-xl border border-stone-850 space-y-1.5">
+                        <div className="flex justify-between text-[10px] font-mono">
+                          <span className="text-stone-400">Fade-Out (End):</span>
+                          <span className="text-amber-500 font-bold">{audioFadeOutDuration.toFixed(1)}s</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="8"
+                          step="0.5"
+                          value={audioFadeOutDuration}
+                          onChange={(e) => setAudioFadeOutDuration(Number(e.target.value))}
+                          className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-900 rounded-lg appearance-none"
+                          title="Fade-out duration at slideshow end"
+                        />
+                        <div className="flex justify-between text-[8px] font-mono text-stone-600">
+                          <span>0s (Off)</span>
+                          <span>8s</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -1146,6 +1451,35 @@ export default function App() {
                           <span>0.6x (Zoom Out)</span>
                           <span>1.0x (Original)</span>
                           <span>2.0x (Zoom In)</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between items-center mb-1">
+                          <label className="text-[10px] font-mono uppercase text-stone-400">
+                            Frame Audio Volume
+                          </label>
+                          <span className="text-[10px] font-mono font-bold text-amber-500 font-mono">
+                            {slides[currentIndex].volume !== undefined ? slides[currentIndex].volume : 100}%
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          step="5"
+                          value={slides[currentIndex].volume !== undefined ? slides[currentIndex].volume : 100}
+                          onChange={(e) => {
+                            const updated = [...slides];
+                            updated[currentIndex].volume = Number(e.target.value);
+                            setSlides(updated);
+                          }}
+                          className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-950 rounded-lg appearance-none"
+                        />
+                        <div className="flex justify-between text-[8px] font-mono text-stone-500 mt-1">
+                          <span>0% (Mute)</span>
+                          <span>50%</span>
+                          <span>100% (Full)</span>
                         </div>
                       </div>
                     </div>

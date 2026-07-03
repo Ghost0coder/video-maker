@@ -67,6 +67,7 @@ export class CollegeMelodyGenerator {
   private ctx: AudioContext | null = null;
   private isPlaying = false;
   private intervalId: any = null;
+  public volumeMultiplier = 1.0;
 
   start() {
     if (this.isPlaying) return;
@@ -151,7 +152,7 @@ export class CollegeMelodyGenerator {
       osc.type = type;
       osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
 
-      gainNode.gain.setValueAtTime(volume, this.ctx.currentTime);
+      gainNode.gain.setValueAtTime(volume * this.volumeMultiplier, this.ctx.currentTime);
       gainNode.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + duration);
 
       osc.connect(gainNode);
