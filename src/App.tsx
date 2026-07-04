@@ -1464,6 +1464,9 @@ export default function App() {
     setExportStatusText("Compiling frames...");
     setIsPlaying(false);
 
+    let audioCtx: AudioContext | null = null;
+    let activeAudioElement: HTMLAudioElement | null = null;
+
     // Estimate initial remaining time based on slides count and resolution
     const totalFramesToRender = slides.reduce((acc, s) => acc + (s.duration || 3) * 30, 0);
     let estimatedMsPerFrame = 35; // default 720p
@@ -1566,15 +1569,69 @@ export default function App() {
       if (!ctx) throw new Error("Canvas 2D context retrieval failed");
 
       const stream = canvas.captureStream(30); // 30 Frames Per Second
+      const combinedStream = new MediaStream();
       
+      // Add video track
+      stream.getVideoTracks().forEach(track => combinedStream.addTrack(track));
+
+      // Setup audio capture based on active soundtrack type
+      if (activeSoundtrackType === "custom" && audioRef.current) {
+        activeAudioElement = audioRef.current;
+        activeAudioElement.currentTime = 0;
+        activeAudioElement.muted = false;
+        activeAudioElement.volume = 1.0;
+        
+        try {
+          const audStream = (activeAudioElement as any).captureStream ? (activeAudioElement as any).captureStream() : (activeAudioElement as any).webkitCaptureStream();
+          if (audStream && audStream.getAudioTracks().length > 0) {
+            audStream.getAudioTracks().forEach(track => combinedStream.addTrack(track));
+          }
+        } catch (err) {
+          console.error("Failed to capture stream from audio element, attempting Web Audio API route", err);
+          try {
+            audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+            const destNode = audioCtx.createMediaStreamDestination();
+            
+            let sourceNode = (activeAudioElement as any).__sourceNode;
+            if (!sourceNode) {
+              sourceNode = audioCtx.createMediaElementSource(activeAudioElement);
+              (activeAudioElement as any).__sourceNode = sourceNode;
+            }
+            sourceNode.disconnect();
+            sourceNode.connect(audioCtx.destination);
+            sourceNode.connect(destNode);
+            
+            destNode.stream.getAudioTracks().forEach(track => combinedStream.addTrack(track));
+          } catch (webAudioErr) {
+            console.error("Web Audio API route failed too", webAudioErr);
+          }
+        }
+        
+        activeAudioElement.play().catch(e => console.log("Export play custom audio failed", e));
+      } else if (activeSoundtrackType === "synth") {
+        try {
+          audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+          const destNode = audioCtx.createMediaStreamDestination();
+          synthesizer.start(destNode, audioCtx);
+          
+          destNode.stream.getAudioTracks().forEach(track => combinedStream.addTrack(track));
+        } catch (err) {
+          console.error("Failed to route synthesizer to destination stream", err);
+          synthesizer.start();
+        }
+      }
+
       // Robust MIME type detection to guarantee recorder doesn't throw unsupported codecs errors
       let selectedMimeType = "video/webm";
       const candidates = [
+        "video/webm;codecs=vp9,opus",
+        "video/webm;codecs=vp8,opus",
+        "video/webm;codecs=h264,opus",
         "video/webm;codecs=vp9",
         "video/webm;codecs=vp8",
         "video/webm;codecs=h264",
         "video/webm",
-        "video/mp4;codecs=avc1",
+        "video/mp4;codecs=avc1,mp4a.40.2",
         "video/mp4"
       ];
       for (const mime of candidates) {
@@ -1584,7 +1641,7 @@ export default function App() {
         }
       }
 
-      const recorder = new MediaRecorder(stream, {
+      const recorder = new MediaRecorder(combinedStream, {
         mimeType: selectedMimeType,
       });
 
@@ -1594,6 +1651,18 @@ export default function App() {
       };
 
       recorder.onstop = async () => {
+        // Stop audio playback
+        if (activeAudioElement) {
+          activeAudioElement.pause();
+          activeAudioElement.currentTime = 0;
+        }
+        synthesizer.stop();
+        if (audioCtx) {
+          try {
+            audioCtx.close();
+          } catch (e) {}
+        }
+
         // Clean up canvas element from DOM
         const el = document.getElementById("cinematic-export-canvas");
         if (el && el.parentNode) {
@@ -2189,6 +2258,18 @@ export default function App() {
 
       compileNextSlide();
     } catch (e: any) {
+      if (activeAudioElement) {
+        try {
+          activeAudioElement.pause();
+        } catch (err) {}
+      }
+      synthesizer.stop();
+      if (audioCtx) {
+        try {
+          audioCtx.close();
+        } catch (err) {}
+      }
+
       // Clean up the canvas from the DOM in case of compilation failure
       const el = document.getElementById("cinematic-export-canvas");
       if (el && el.parentNode) {

@@ -68,12 +68,16 @@ export class CollegeMelodyGenerator {
   private isPlaying = false;
   private intervalId: any = null;
   public volumeMultiplier = 1.0;
+  private destinationNode: AudioNode | null = null;
 
-  start() {
+  start(customDestNode?: AudioNode, customCtx?: AudioContext) {
     if (this.isPlaying) return;
     try {
-      this.ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      this.ctx = customCtx || new (window.AudioContext || (window as any).webkitAudioContext)();
       this.isPlaying = true;
+      if (customDestNode) {
+        this.destinationNode = customDestNode;
+      }
 
       // Simple nostalgic progression in C Major / G Major: C - G - Am - F
       const chords = [
@@ -134,9 +138,12 @@ export class CollegeMelodyGenerator {
       this.intervalId = null;
     }
     if (this.ctx) {
-      this.ctx.close();
+      if (!this.destinationNode) {
+        this.ctx.close();
+      }
       this.ctx = null;
     }
+    this.destinationNode = null;
   }
 
   private midiToFreq(note: number): number {
@@ -157,6 +164,13 @@ export class CollegeMelodyGenerator {
 
       osc.connect(gainNode);
       gainNode.connect(this.ctx.destination);
+      if (this.destinationNode) {
+        try {
+          gainNode.connect(this.destinationNode);
+        } catch (e) {
+          console.error("Failed to connect gainNode to custom destinationNode", e);
+        }
+      }
 
       osc.start();
       osc.stop(this.ctx.currentTime + duration);
