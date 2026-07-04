@@ -1575,45 +1575,43 @@ export default function App() {
       stream.getVideoTracks().forEach(track => combinedStream.addTrack(track));
 
       // Setup audio capture based on active soundtrack type
-      if (activeSoundtrackType === "custom" && audioRef.current) {
-        activeAudioElement = audioRef.current;
-        activeAudioElement.currentTime = 0;
-        activeAudioElement.muted = false;
-        activeAudioElement.volume = 1.0;
-        
+      if (activeSoundtrackType === "custom" && uploadedAudioSrc) {
         try {
-          const audStream = (activeAudioElement as any).captureStream ? (activeAudioElement as any).captureStream() : (activeAudioElement as any).webkitCaptureStream();
-          if (audStream && audStream.getAudioTracks().length > 0) {
-            audStream.getAudioTracks().forEach(track => combinedStream.addTrack(track));
+          audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+          const destNode = audioCtx.createMediaStreamDestination();
+          
+          // Create a dedicated, temporary HTMLAudioElement for export to avoid CORS issues,
+          // "already connected" exceptions, and playback state interference.
+          const tempAudio = new Audio();
+          tempAudio.src = uploadedAudioSrc;
+          tempAudio.crossOrigin = "anonymous";
+          tempAudio.loop = true;
+          tempAudio.volume = 1.0;
+          activeAudioElement = tempAudio;
+          
+          const sourceNode = audioCtx.createMediaElementSource(tempAudio);
+          sourceNode.connect(audioCtx.destination);
+          sourceNode.connect(destNode);
+          
+          destNode.stream.getAudioTracks().forEach(track => combinedStream.addTrack(track));
+          
+          if (audioCtx.state === "suspended") {
+            await audioCtx.resume();
           }
+          await tempAudio.play();
         } catch (err) {
-          console.error("Failed to capture stream from audio element, attempting Web Audio API route", err);
-          try {
-            audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-            const destNode = audioCtx.createMediaStreamDestination();
-            
-            let sourceNode = (activeAudioElement as any).__sourceNode;
-            if (!sourceNode) {
-              sourceNode = audioCtx.createMediaElementSource(activeAudioElement);
-              (activeAudioElement as any).__sourceNode = sourceNode;
-            }
-            sourceNode.disconnect();
-            sourceNode.connect(audioCtx.destination);
-            sourceNode.connect(destNode);
-            
-            destNode.stream.getAudioTracks().forEach(track => combinedStream.addTrack(track));
-          } catch (webAudioErr) {
-            console.error("Web Audio API route failed too", webAudioErr);
-          }
+          console.error("Web Audio API route failed for custom audio export", err);
         }
-        
-        activeAudioElement.play().catch(e => console.log("Export play custom audio failed", e));
       } else if (activeSoundtrackType === "synth") {
         try {
           audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
           const destNode = audioCtx.createMediaStreamDestination();
-          synthesizer.start(destNode, audioCtx);
           
+          if (audioCtx.state === "suspended") {
+            await audioCtx.resume();
+          }
+          
+          synthesizer.start(destNode, audioCtx);
           destNode.stream.getAudioTracks().forEach(track => combinedStream.addTrack(track));
         } catch (err) {
           console.error("Failed to route synthesizer to destination stream", err);
@@ -1627,9 +1625,6 @@ export default function App() {
         "video/webm;codecs=vp9,opus",
         "video/webm;codecs=vp8,opus",
         "video/webm;codecs=h264,opus",
-        "video/webm;codecs=vp9",
-        "video/webm;codecs=vp8",
-        "video/webm;codecs=h264",
         "video/webm",
         "video/mp4;codecs=avc1,mp4a.40.2",
         "video/mp4"
