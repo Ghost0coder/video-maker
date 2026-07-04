@@ -27,7 +27,10 @@ import {
   FolderOpen,
   Undo,
   Redo,
-  Compass
+  Compass,
+  Bookmark,
+  Save,
+  Check
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { CollegeMelodyGenerator } from "./utils";
@@ -59,6 +62,124 @@ interface VideoSlide {
   vfxType?: "none" | "lens_flare" | "light_leak" | "film_grain" | "snow" | "rain" | "vhs" | "bokeh";
   vfxIntensity?: number; // 0 to 100
 }
+
+interface StylePreset {
+  id: string;
+  name: string;
+  description: string;
+  isCustom?: boolean;
+  transition: "zoom" | "panLeft" | "panRight" | "slideUp" | "slideLeft" | "slideRight" | "blurFade" | "retroSpin" | "zoomOut" | "tiltUp" | "tiltDown" | "vortex" | "glitch" | "fadeOnly";
+  filter: "none" | "grayscale" | "sepia" | "vibrant" | "vintage" | "invert" | "warm" | "cool" | "dramatic" | "cyberpunk" | "technicolor" | "monochrome" | "dream";
+  vfxType: "none" | "lens_flare" | "light_leak" | "film_grain" | "snow" | "rain" | "vhs" | "bokeh";
+  vfxIntensity: number;
+  maskType?: "none" | "radial_focus" | "vignette" | "split_mask";
+  maskRadius?: number;
+  maskFeather?: number;
+  cameraRoll?: number;
+  cameraPitch?: number;
+  cameraYaw?: number;
+  parallaxEnabled?: boolean;
+  parallaxStrength?: number;
+  motionSpeed?: number;
+  motionAngle?: number;
+}
+
+const SYSTEM_PRESETS: StylePreset[] = [
+  {
+    id: "vintage_35mm",
+    name: "📽️ Vintage 35mm Cinema",
+    description: "Nostalgic warm tones, subtle analog film grain, and elegant zooming transitions.",
+    transition: "zoom",
+    filter: "vintage",
+    vfxType: "film_grain",
+    vfxIntensity: 45,
+    cameraRoll: 1,
+    parallaxEnabled: true,
+    parallaxStrength: 25,
+    maskType: "vignette",
+    maskRadius: 80,
+    maskFeather: 60
+  },
+  {
+    id: "cyberpunk_neon",
+    name: "🌆 Cyberpunk Neon Horizon",
+    description: "Vibrant futuristic color grading, high-intensity projector light leaks, and pan-left dynamics.",
+    transition: "panLeft",
+    filter: "cyberpunk",
+    vfxType: "light_leak",
+    vfxIntensity: 65,
+    cameraPitch: 5,
+    cameraRoll: -3,
+    maskType: "vignette",
+    maskRadius: 85,
+    maskFeather: 50
+  },
+  {
+    id: "golden_dream",
+    name: "🟡 Golden Hour Dream",
+    description: "Warm glow filter, dreamy floating bokeh particles, and smooth pan-right motion.",
+    transition: "panRight",
+    filter: "dream",
+    vfxType: "bokeh",
+    vfxIntensity: 50,
+    maskType: "vignette",
+    maskRadius: 80,
+    maskFeather: 60,
+    parallaxEnabled: true,
+    parallaxStrength: 20
+  },
+  {
+    id: "noir_storm",
+    name: "🌧️ Cinematic Noir Storm",
+    description: "High-contrast monochrome filter, atmospheric vertical rain drops, and dramatic focal zoom.",
+    transition: "zoom",
+    filter: "monochrome",
+    vfxType: "rain",
+    vfxIntensity: 70,
+    maskType: "vignette",
+    maskRadius: 65,
+    maskFeather: 45
+  },
+  {
+    id: "retro_vhs",
+    name: "📼 Retro 80s VHS Tape",
+    description: "Warm analog hues, 240p VCR tracking distortion, scanlines, and camera roll slant.",
+    transition: "zoomOut",
+    filter: "warm",
+    vfxType: "vhs",
+    vfxIntensity: 60,
+    cameraRoll: -1,
+    maskType: "split_mask"
+  },
+  {
+    id: "cozy_snow",
+    name: "❄️ Atmospheric Cozy Snow",
+    description: "Cool glacier tones, gentle falling winter snow drifts, and tilt-up perspective.",
+    transition: "tiltUp",
+    filter: "cool",
+    vfxType: "snow",
+    vfxIntensity: 55,
+    maskType: "vignette",
+    maskRadius: 90,
+    maskFeather: 70,
+    parallaxEnabled: true,
+    parallaxStrength: 35
+  },
+  {
+    id: "anamorphic_flare",
+    name: "🎥 Lens Flare Glamour",
+    description: "High-contrast dramatic lighting, anamorphic streak flare tracking, and camera perspective.",
+    transition: "slideLeft",
+    filter: "dramatic",
+    vfxType: "lens_flare",
+    vfxIntensity: 60,
+    cameraPitch: -3,
+    cameraYaw: 4,
+    maskType: "radial_focus",
+    maskRadius: 75,
+    maskFeather: 55
+  }
+];
 
 export const getFilterCss = (filter?: string): string => {
   if (!filter || filter === "none") return "none";
@@ -127,6 +248,119 @@ export default function App() {
 
   // Subtitle / Caption Global State
   const [globalShowSubtitles, setGlobalShowSubtitles] = useState<boolean>(true);
+
+  // Styles & Presets Studio States
+  const [customPresets, setCustomPresets] = useState<StylePreset[]>(() => {
+    try {
+      const saved = localStorage.getItem("cinematic_custom_presets");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {
+      console.error("Error reading custom presets from localStorage", e);
+    }
+    return [];
+  });
+  const [newPresetName, setNewPresetName] = useState<string>("");
+  const [presetFeedback, setPresetFeedback] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("cinematic_custom_presets", JSON.stringify(customPresets));
+    } catch (e) {
+      console.error("Failed to save custom presets to localStorage", e);
+    }
+  }, [customPresets]);
+
+  const saveCurrentStylesAsPreset = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const currentSlide = slides[currentIndex];
+    if (!currentSlide) return;
+
+    const newPreset: StylePreset = {
+      id: `preset_${Date.now()}`,
+      name: trimmed,
+      description: `Custom Preset • Created ${new Date().toLocaleDateString()}`,
+      isCustom: true,
+      transition: currentSlide.transition || "zoom",
+      filter: currentSlide.filter || "none",
+      vfxType: currentSlide.vfxType || "none",
+      vfxIntensity: currentSlide.vfxIntensity !== undefined ? currentSlide.vfxIntensity : 50,
+      maskType: currentSlide.maskType || "none",
+      maskRadius: currentSlide.maskRadius,
+      maskFeather: currentSlide.maskFeather,
+      cameraRoll: currentSlide.cameraRoll,
+      cameraPitch: currentSlide.cameraPitch,
+      cameraYaw: currentSlide.cameraYaw,
+      parallaxEnabled: currentSlide.parallaxEnabled,
+      parallaxStrength: currentSlide.parallaxStrength,
+      motionSpeed: currentSlide.motionSpeed,
+      motionAngle: currentSlide.motionAngle
+    };
+
+    setCustomPresets(prev => [newPreset, ...prev]);
+    setNewPresetName("");
+    setPresetFeedback(`Style preset "${trimmed}" successfully saved!`);
+    setTimeout(() => setPresetFeedback(null), 4000);
+  };
+
+  const loadPreset = (preset: StylePreset, applyToAll: boolean) => {
+    if (slides.length === 0) return;
+
+    if (applyToAll) {
+      const updated = slides.map(slide => ({
+        ...slide,
+        transition: preset.transition,
+        filter: preset.filter,
+        vfxType: preset.vfxType,
+        vfxIntensity: preset.vfxIntensity,
+        maskType: preset.maskType || "none",
+        maskRadius: preset.maskRadius !== undefined ? preset.maskRadius : slide.maskRadius,
+        maskFeather: preset.maskFeather !== undefined ? preset.maskFeather : slide.maskFeather,
+        cameraRoll: preset.cameraRoll !== undefined ? preset.cameraRoll : slide.cameraRoll,
+        cameraPitch: preset.cameraPitch !== undefined ? preset.cameraPitch : slide.cameraPitch,
+        cameraYaw: preset.cameraYaw !== undefined ? preset.cameraYaw : slide.cameraYaw,
+        parallaxEnabled: preset.parallaxEnabled !== undefined ? preset.parallaxEnabled : slide.parallaxEnabled,
+        parallaxStrength: preset.parallaxStrength !== undefined ? preset.parallaxStrength : slide.parallaxStrength,
+        motionSpeed: preset.motionSpeed !== undefined ? preset.motionSpeed : slide.motionSpeed,
+        motionAngle: preset.motionAngle !== undefined ? preset.motionAngle : slide.motionAngle
+      }));
+      setSlides(updated);
+      setPresetFeedback(`Successfully applied "${preset.name}" to all slides!`);
+    } else {
+      const updated = [...slides];
+      updated[currentIndex] = {
+        ...updated[currentIndex],
+        transition: preset.transition,
+        filter: preset.filter,
+        vfxType: preset.vfxType,
+        vfxIntensity: preset.vfxIntensity,
+        maskType: preset.maskType || "none",
+        maskRadius: preset.maskRadius !== undefined ? preset.maskRadius : updated[currentIndex].maskRadius,
+        maskFeather: preset.maskFeather !== undefined ? preset.maskFeather : updated[currentIndex].maskFeather,
+        cameraRoll: preset.cameraRoll !== undefined ? preset.cameraRoll : updated[currentIndex].cameraRoll,
+        cameraPitch: preset.cameraPitch !== undefined ? preset.cameraPitch : updated[currentIndex].cameraPitch,
+        cameraYaw: preset.cameraYaw !== undefined ? preset.cameraYaw : updated[currentIndex].cameraYaw,
+        parallaxEnabled: preset.parallaxEnabled !== undefined ? preset.parallaxEnabled : updated[currentIndex].parallaxEnabled,
+        parallaxStrength: preset.parallaxStrength !== undefined ? preset.parallaxStrength : updated[currentIndex].parallaxStrength,
+        motionSpeed: preset.motionSpeed !== undefined ? preset.motionSpeed : updated[currentIndex].motionSpeed,
+        motionAngle: preset.motionAngle !== undefined ? preset.motionAngle : updated[currentIndex].motionAngle
+      };
+      setSlides(updated);
+      setPresetFeedback(`Applied "${preset.name}" to the current slide!`);
+    }
+
+    setPreviewToggle(prev => prev + 1);
+    setTimeout(() => setPresetFeedback(null), 4000);
+  };
+
+  const deleteCustomPreset = (id: string) => {
+    setCustomPresets(prev => prev.filter(p => p.id !== id));
+    setPresetFeedback("Custom preset deleted successfully.");
+    setTimeout(() => setPresetFeedback(null), 3000);
+  };
 
   // Transition Preview Trigger State
   const [previewToggle, setPreviewToggle] = useState<number>(0);
@@ -3040,6 +3274,178 @@ export default function App() {
                         ✨ Pro Tip: The Lens Flare effect will automatically align to your chosen **Anchor Focus Pin** on the slide, creating gorgeous focal perspective. Light Leak and VHS effects add rich nostalgia to historic memories.
                       </p>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* STYLES & PRESETS STUDIO */}
+              {slides.length > 0 && (
+                <div className="bg-stone-900 border border-stone-800 rounded-3xl p-6 shadow-2xl space-y-4">
+                  <div className="flex items-center justify-between border-b border-stone-800/80 pb-3 mb-1">
+                    <div className="flex items-center gap-2">
+                      <Bookmark className="w-5 h-5 text-amber-500" />
+                      <h3 className="text-sm font-extrabold text-stone-200 uppercase tracking-wider font-mono">
+                        Styles & Presets Studio
+                      </h3>
+                    </div>
+                    <span className="text-[10px] font-mono text-amber-500 font-bold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                      Live Templates
+                    </span>
+                  </div>
+
+                  {presetFeedback && (
+                    <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 p-2.5 rounded-xl text-xs flex items-center gap-2 animate-pulse font-medium">
+                      <Check className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                      <span>{presetFeedback}</span>
+                    </div>
+                  )}
+
+                  <p className="text-xs text-stone-400 leading-relaxed">
+                    Save your custom combination of transitions, artistic filters, camera pan, and cinematic VFX as reusable presets, or apply pre-built style templates instantly.
+                  </p>
+
+                  <div className="space-y-4">
+                    {/* Custom Preset Saving Form */}
+                    <div className="bg-stone-950 p-4 rounded-2xl border border-stone-800/80 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Save className="w-3.5 h-3.5 text-amber-500" />
+                        <span className="text-[10px] font-bold text-stone-300 font-mono uppercase">Save Active Frame Style as Preset</span>
+                      </div>
+                      
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={newPresetName}
+                          onChange={(e) => setNewPresetName(e.target.value)}
+                          placeholder="e.g., Midnight Retro Cyber, Cinematic Noir 3D"
+                          className="flex-1 bg-stone-900 border border-stone-800 rounded-xl px-3.5 py-2 text-xs text-stone-200 focus:border-amber-500/50 focus:outline-none"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && newPresetName.trim()) {
+                              saveCurrentStylesAsPreset(newPresetName);
+                            }
+                          }}
+                        />
+                        <button
+                          onClick={() => saveCurrentStylesAsPreset(newPresetName)}
+                          disabled={!newPresetName.trim()}
+                          className="px-4 py-2 bg-amber-500 hover:bg-amber-400 disabled:bg-stone-800 disabled:text-stone-500 disabled:border-stone-850 text-stone-950 rounded-xl text-xs font-bold transition-all hover:scale-[1.02] cursor-pointer"
+                        >
+                          Save Preset
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Presets List Sections (Curated) */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-stone-400 font-mono uppercase">Curated Cinematic Templates</span>
+                        <span className="text-[8px] text-stone-500 font-mono">Click to Apply</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-stone-800 scrollbar-track-transparent">
+                        {SYSTEM_PRESETS.map((preset) => {
+                          const isActive = slides[currentIndex] && 
+                            slides[currentIndex].transition === preset.transition && 
+                            slides[currentIndex].filter === preset.filter && 
+                            slides[currentIndex].vfxType === preset.vfxType;
+                          return (
+                            <div 
+                              key={preset.id}
+                              className={`p-2.5 rounded-xl border text-left transition-all relative flex flex-col justify-between gap-2 bg-stone-950/40 hover:bg-stone-950/90 cursor-pointer group ${
+                                isActive ? "border-amber-500 bg-amber-500/5" : "border-stone-800/80 hover:border-stone-700"
+                              }`}
+                            >
+                              <div className="space-y-0.5">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[11px] font-bold text-stone-200 group-hover:text-amber-400 transition-colors">
+                                    {preset.name}
+                                  </span>
+                                  {isActive && <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />}
+                                </div>
+                                <span className="block text-[8px] text-stone-500 leading-tight">
+                                  {preset.description}
+                                </span>
+                              </div>
+
+                              <div className="flex gap-1.5 mt-1 border-t border-stone-900/60 pt-1.5">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    loadPreset(preset, false);
+                                  }}
+                                  className="flex-1 text-[8px] font-mono font-bold bg-stone-900 hover:bg-stone-800 text-stone-300 py-1 px-1.5 rounded transition-all cursor-pointer border border-stone-800"
+                                >
+                                  Apply Active
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    loadPreset(preset, true);
+                                  }}
+                                  className="flex-1 text-[8px] font-mono font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 py-1 px-1.5 rounded transition-all cursor-pointer border border-amber-500/20"
+                                  title="Apply style to all slides in timeline"
+                                >
+                                  Apply to All
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Saved Custom Presets */}
+                    <div className="space-y-3 pt-2 border-t border-stone-800/55">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-stone-400 font-mono uppercase">Your Reusable Style Templates ({customPresets.length})</span>
+                        {customPresets.length === 0 && <span className="text-[8px] text-stone-600 font-mono italic">No custom presets saved yet</span>}
+                      </div>
+
+                      {customPresets.length > 0 && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[160px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-stone-800 scrollbar-track-transparent">
+                          {customPresets.map((preset) => (
+                            <div 
+                              key={preset.id}
+                              className="p-2.5 rounded-xl border border-stone-800/80 bg-stone-950/40 hover:bg-stone-950 hover:border-stone-700 transition-all flex flex-col justify-between gap-2"
+                            >
+                              <div className="space-y-0.5">
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className="text-[11px] font-bold text-stone-200 truncate" title={preset.name}>
+                                    ⭐ {preset.name}
+                                  </span>
+                                  <button
+                                    onClick={() => deleteCustomPreset(preset.id)}
+                                    className="text-stone-500 hover:text-rose-400 p-0.5 transition-colors cursor-pointer"
+                                    title="Delete Preset"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                                <span className="block text-[8px] text-stone-500 font-mono">
+                                  {preset.description}
+                                </span>
+                              </div>
+
+                              <div className="flex gap-1.5 mt-1 border-t border-stone-900/40 pt-1.5">
+                                <button
+                                  onClick={() => loadPreset(preset, false)}
+                                  className="flex-1 text-[8px] font-mono font-bold bg-stone-900 hover:bg-stone-800 text-stone-300 py-1 px-1.5 rounded transition-all cursor-pointer border border-stone-800"
+                                >
+                                  Apply Active
+                                </button>
+                                <button
+                                  onClick={() => loadPreset(preset, true)}
+                                  className="flex-1 text-[8px] font-mono font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 py-1 px-1.5 rounded transition-all cursor-pointer border border-amber-500/20"
+                                >
+                                  Apply to All
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
                   </div>
                 </div>
               )}
