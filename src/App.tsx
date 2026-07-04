@@ -215,7 +215,7 @@ export const getFilterCss = (filter?: string): string => {
   }
 };
 
-function compressImage(file: File, maxWidth = 1200, maxHeight = 1200, quality = 0.75): Promise<string> {
+function compressImage(file: File, maxWidth = 1000, maxHeight = 1000, quality = 0.6): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -262,11 +262,60 @@ function compressImage(file: File, maxWidth = 1200, maxHeight = 1200, quality = 
   });
 }
 
+function compressDataUrl(dataUrl: string, maxWidth = 1000, maxHeight = 1000, quality = 0.6): Promise<string> {
+  if (!dataUrl || !dataUrl.startsWith("data:image/")) {
+    return Promise.resolve(dataUrl);
+  }
+  // If already compact, skip
+  if (dataUrl.length < 120000) {
+    return Promise.resolve(dataUrl);
+  }
+
+  return new Promise((resolve) => {
+    const img = new window.Image();
+    img.onload = () => {
+      let width = img.width;
+      let height = img.height;
+
+      // Calculate new dimensions
+      if (width > height) {
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+      } else {
+        if (height > maxHeight) {
+          width = Math.round((width * maxHeight) / height);
+          height = maxHeight;
+        }
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        resolve(dataUrl);
+        return;
+      }
+
+      ctx.drawImage(img, 0, 0, width, height);
+      const compressed = canvas.toDataURL("image/jpeg", quality);
+      resolve(compressed);
+    };
+    img.onerror = () => {
+      resolve(dataUrl);
+    };
+    img.src = dataUrl;
+  });
+}
+
 function safeSaveToLocalStorage(key: string, data: any, pruneCallback?: (data: any) => any): boolean {
   let success = false;
   let attempts = 0;
   let currentData = data;
-  while (!success && attempts < 4) {
+  while (!success && attempts < 30) {
     try {
       localStorage.setItem(key, JSON.stringify(currentData));
       success = true;
@@ -342,17 +391,69 @@ export default function App() {
   // Ref for the sidebar file upload input
   const sidebarFileInputRef = useRef<HTMLInputElement>(null);
 
+  // Background optimization of existing large assets on startup
+  useEffect(() => {
+    let needsSlideUpdate = false;
+    let needsGalleryUpdate = false;
+
+    const optimizeAssets = async () => {
+      const optimizedSlides = await Promise.all(
+        slides.map(async (slide) => {
+          if (slide.url && slide.url.startsWith("data:image/") && slide.url.length > 150000) {
+            try {
+              const compressed = await compressDataUrl(slide.url);
+              if (compressed.length < slide.url.length) {
+                needsSlideUpdate = true;
+                return { ...slide, url: compressed };
+              }
+            } catch (err) {
+              console.error("Error optimizing slide image on startup", err);
+            }
+          }
+          return slide;
+        })
+      );
+
+      const optimizedGallery = await Promise.all(
+        galleryAssets.map(async (asset) => {
+          if (asset.url && asset.url.startsWith("data:image/") && asset.url.length > 150000) {
+            try {
+              const compressed = await compressDataUrl(asset.url);
+              if (compressed.length < asset.url.length) {
+                needsGalleryUpdate = true;
+                return { ...asset, url: compressed };
+              }
+            } catch (err) {
+              console.error("Error optimizing gallery asset image on startup", err);
+            }
+          }
+          return asset;
+        })
+      );
+
+      if (needsSlideUpdate) {
+        setSlides(optimizedSlides);
+      }
+      if (needsGalleryUpdate) {
+        setGalleryAssets(optimizedGallery);
+      }
+    };
+
+    optimizeAssets();
+  }, []);
+
   // Auto-sync asset gallery to localStorage
   useEffect(() => {
     const pruneGallery = (assets: GalleryAsset[]) => {
-      if (assets.length <= 2) return assets; // Can't prune further
-      // Keep the first 75% of assets (the most recently added ones)
-      return assets.slice(0, Math.ceil(assets.length * 0.75));
+      if (assets.length === 0) return assets;
+      // Reduce by 25%, but guarantee at least 1 element is removed to prevent infinite loops/stalls
+      const targetLength = Math.min(assets.length - 1, Math.floor(assets.length * 0.75));
+      return assets.slice(0, targetLength);
     };
 
     const success = safeSaveToLocalStorage("cinematic_asset_gallery", galleryAssets, pruneGallery);
     if (!success) {
-      console.error("Failed to save asset gallery to localStorage even after pruning.");
+      console.warn("Failed to save asset gallery to localStorage even after pruning.");
     } else {
       // If we actually pruned, we should update the state so it is in sync
       const savedDataStr = localStorage.getItem("cinematic_asset_gallery");
@@ -730,6 +831,7 @@ export default function App() {
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [exportProgress, setExportProgress] = useState<number>(0);
   const [exportStatusText, setExportStatusText] = useState<string>("");
+  const [exportTimeRemaining, setExportTimeRemaining] = useState<number | null>(null);
 
   // Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1362,6 +1464,23 @@ export default function App() {
     setExportStatusText("Compiling frames...");
     setIsPlaying(false);
 
+    // Estimate initial remaining time based on slides count and resolution
+    const totalFramesToRender = slides.reduce((acc, s) => acc + (s.duration || 3) * 30, 0);
+    let estimatedMsPerFrame = 35; // default 720p
+    if (exportResolution === "1080p") {
+      estimatedMsPerFrame = 48;
+    } else if (exportResolution === "4k") {
+      estimatedMsPerFrame = 110;
+    } else if (exportResolution === "8k") {
+      estimatedMsPerFrame = 320;
+    }
+    let transcodeOverheadSeconds = 0;
+    if (exportFormat === "mp4") {
+      transcodeOverheadSeconds = 3 + slides.length * 1.5;
+    }
+    const initialEstimatedSeconds = Math.ceil((totalFramesToRender * estimatedMsPerFrame) / 1000) + transcodeOverheadSeconds;
+    setExportTimeRemaining(initialEstimatedSeconds);
+
     try {
       const canvas = document.createElement("canvas");
       canvas.id = "cinematic-export-canvas";
@@ -1488,6 +1607,7 @@ export default function App() {
         if (exportFormat === "mp4" && !recordedIsAlreadyMp4) {
           setExportStatusText("Converting WebM to highly-compatible MP4...");
           setExportProgress(98);
+          setExportTimeRemaining(Math.max(2, Math.ceil(transcodeOverheadSeconds * 0.4)));
 
           try {
             const response = await fetch("/api/convert-to-mp4", {
@@ -1547,6 +1667,8 @@ export default function App() {
 
       recorder.start();
 
+      let currentFrame = 0;
+      const startTime = Date.now();
       let slideIndex = 0;
       const compileNextSlide = async () => {
         if (slideIndex >= slides.length) {
@@ -2038,11 +2160,27 @@ export default function App() {
           // Delay simulation for frame rendering pipeline
           await new Promise((r) => setTimeout(r, 1000 / 30));
 
-          // Calculate aggregate progress percentage across total slides
-          const overallProgress = Math.round(
-            ((slideIndex * totalFrames + f) / (slides.length * totalFrames)) * 100
-          );
+          // Increment frame counter
+          currentFrame++;
+
+          // Calculate aggregate progress percentage across total slides based on actual frames
+          const overallProgress = Math.min(97, Math.round((currentFrame / totalFramesToRender) * 100));
           setExportProgress(overallProgress);
+
+          // Dynamically compute the estimated remaining seconds
+          const elapsedMs = Date.now() - startTime;
+          const measuredMsPerFrame = currentFrame > 5 ? (elapsedMs / currentFrame) : estimatedMsPerFrame;
+          // Smooth the reading with a weighted average
+          const averageMsPerFrame = currentFrame > 15 ? (measuredMsPerFrame * 0.8 + estimatedMsPerFrame * 0.2) : measuredMsPerFrame;
+          
+          const remainingFrames = totalFramesToRender - currentFrame;
+          let remainingSeconds = Math.ceil((remainingFrames * averageMsPerFrame) / 1000);
+
+          if (exportFormat === "mp4") {
+            const remainingTranscodeOverhead = Math.ceil(transcodeOverheadSeconds * (1 - (currentFrame / totalFramesToRender) * 0.5));
+            remainingSeconds += Math.max(2, remainingTranscodeOverhead);
+          }
+          setExportTimeRemaining(Math.max(0, remainingSeconds));
         }
 
         slideIndex++;
@@ -4659,7 +4797,23 @@ export default function App() {
                       className="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full transition-all duration-300"
                     />
                   </div>
-                  <p className="text-[10px] text-stone-500 italic">
+                  {exportTimeRemaining !== null && (
+                    <div className="space-y-2 bg-stone-950/60 rounded-xl p-3 border border-stone-800/50 mt-1 text-left">
+                      <div className="flex justify-between items-center text-[11px] font-mono text-stone-400">
+                        <span className="text-stone-500">Estimated time remaining:</span>
+                        <span className="text-amber-400 font-bold">
+                          {exportTimeRemaining > 60
+                            ? `${Math.floor(exportTimeRemaining / 60)}m ${exportTimeRemaining % 60}s`
+                            : `${exportTimeRemaining}s`}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center text-[10px] font-mono text-stone-500 border-t border-stone-800/40 pt-1.5">
+                        <span>Resolution: {exportResolution}</span>
+                        <span>Format: {exportFormat.toUpperCase()}</span>
+                      </div>
+                    </div>
+                  )}
+                  <p className="text-[10px] text-stone-500 italic mt-2">
                     Please do not close this tab or navigate away.
                   </p>
                 </div>

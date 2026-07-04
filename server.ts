@@ -190,8 +190,8 @@ app.post("/api/convert-to-mp4", express.raw({ type: (req) => req.headers["conten
 
       // Convert WebM to standard MP4 (libx264, standard AAC audio fallback)
       // We use yuv420p pixel format for supreme compatibility with all standard players (QuickTime, Safari, mobile devices)
-      // We add -fflags +genpts and -r 30 to fix missing/invalid timestamps from browser MediaRecorder
-      const ffmpegCmd = `ffmpeg -y -fflags +genpts -i "${tempWebmPath}" -r 30 -c:v libx264 -preset ultrafast -crf 22 -pix_fmt yuv420p "${tempMp4Path}"`;
+      // We add -vf "settb=1/30,setpts=N" to discard browser wall-clock latency/timestamps and enforce perfect 30 FPS spacing
+      const ffmpegCmd = `ffmpeg -y -fflags +genpts -i "${tempWebmPath}" -vf "settb=1/30,setpts=N" -r 30 -c:v libx264 -preset ultrafast -crf 22 -pix_fmt yuv420p "${tempMp4Path}"`;
 
       exec(ffmpegCmd, (execErr, stdout, stderr) => {
         // Safe clean up of raw source file
