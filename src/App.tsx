@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, ChangeEvent, DragEvent } from "react";
+import React, { useState, useRef, useEffect, useCallback, ChangeEvent, DragEvent } from "react";
 import {
   Upload,
   Play,
@@ -30,7 +30,9 @@ import {
   Compass,
   Bookmark,
   Save,
-  Check
+  Check,
+  Library,
+  Images
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { CollegeMelodyGenerator } from "./utils";
@@ -213,6 +215,84 @@ export const getFilterCss = (filter?: string): string => {
   }
 };
 
+function compressImage(file: File, maxWidth = 1200, maxHeight = 1200, quality = 0.75): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new window.Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        // Calculate new dimensions
+        if (width > height) {
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+        } else {
+          if (height > maxHeight) {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          resolve(e.target?.result as string);
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        // Export to JPEG with specified quality
+        const compressedDataUrl = canvas.toDataURL("image/jpeg", quality);
+        resolve(compressedDataUrl);
+      };
+      img.onerror = () => {
+        resolve(e.target?.result as string);
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = (err) => reject(err);
+    reader.readAsDataURL(file);
+  });
+}
+
+function safeSaveToLocalStorage(key: string, data: any, pruneCallback?: (data: any) => any): boolean {
+  let success = false;
+  let attempts = 0;
+  let currentData = data;
+  while (!success && attempts < 4) {
+    try {
+      localStorage.setItem(key, JSON.stringify(currentData));
+      success = true;
+    } catch (e: any) {
+      if (e.name === "QuotaExceededError" || e.code === 22 || e.name === "NS_ERROR_DOM_QUOTA_REACHED") {
+        console.warn(`LocalStorage quota exceeded for key ${key}. Attempting to prune...`);
+        if (pruneCallback) {
+          const pruned = pruneCallback(currentData);
+          if (pruned === currentData || (Array.isArray(pruned) && pruned.length === currentData.length)) {
+            // Pruning didn't reduce anything, stop to prevent infinite loop
+            break;
+          }
+          currentData = pruned;
+          attempts++;
+        } else {
+          break;
+        }
+      } else {
+        console.error(`Failed to save to localStorage for key ${key}`, e);
+        break;
+      }
+    }
+  }
+  return success;
+}
+
 function getInitialSlides(): VideoSlide[] {
   try {
     const saved = localStorage.getItem("cinematic_slides_data");
@@ -228,10 +308,81 @@ function getInitialSlides(): VideoSlide[] {
   return [];
 }
 
+interface GalleryAsset {
+  id: string;
+  url: string;
+  name: string;
+  addedAt: number;
+}
+
+function getInitialGalleryAssets(): GalleryAsset[] {
+  try {
+    const saved = localStorage.getItem("cinematic_asset_gallery");
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {
+    console.error("Error reading asset gallery from localStorage", e);
+  }
+  return [];
+}
+
 export default function App() {
   // Timeline Slides State
   const [slides, setSlides] = useState<VideoSlide[]>(getInitialSlides);
   const [currentIndex, setCurrentIndex] = useState<number>(0);
+
+  // Asset Gallery States
+  const [isAssetGalleryOpen, setIsAssetGalleryOpen] = useState<boolean>(false);
+  const [galleryAssets, setGalleryAssets] = useState<GalleryAsset[]>(getInitialGalleryAssets);
+  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
+  const [draggedAssetIdx, setDraggedAssetIdx] = useState<number | null>(null);
+
+  // Ref for the sidebar file upload input
+  const sidebarFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-sync asset gallery to localStorage
+  useEffect(() => {
+    const pruneGallery = (assets: GalleryAsset[]) => {
+      if (assets.length <= 2) return assets; // Can't prune further
+      // Keep the first 75% of assets (the most recently added ones)
+      return assets.slice(0, Math.ceil(assets.length * 0.75));
+    };
+
+    const success = safeSaveToLocalStorage("cinematic_asset_gallery", galleryAssets, pruneGallery);
+    if (!success) {
+      console.error("Failed to save asset gallery to localStorage even after pruning.");
+    } else {
+      // If we actually pruned, we should update the state so it is in sync
+      const savedDataStr = localStorage.getItem("cinematic_asset_gallery");
+      if (savedDataStr) {
+        try {
+          const parsed = JSON.parse(savedDataStr);
+          if (Array.isArray(parsed) && parsed.length < galleryAssets.length) {
+            setGalleryAssets(parsed);
+            setPresetFeedback("Storage quota reached. Older gallery assets were automatically pruned to save space.");
+            setTimeout(() => setPresetFeedback(null), 5000);
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+  }, [galleryAssets]);
+
+  // Populates asset gallery from existing slides if empty on startup
+  useEffect(() => {
+    if (galleryAssets.length === 0 && slides.length > 0) {
+      const initialAssets: GalleryAsset[] = slides.map((slide, idx) => ({
+        id: `asset_init_${idx}_${Date.now()}`,
+        url: slide.url,
+        name: slide.name || `Memory_${idx + 1}`,
+        addedAt: Date.now() - (slides.length - idx) * 1000
+      }));
+      setGalleryAssets(initialAssets);
+    }
+  }, [slides]);
   const [selectedSlideId, setSelectedSlideId] = useState<string | null>(() => {
     const initial = getInitialSlides();
     return initial.length > 0 ? initial[0].id : null;
@@ -375,8 +526,32 @@ export default function App() {
   useEffect(() => {
     try {
       localStorage.setItem("cinematic_slides_data", JSON.stringify(slides));
-    } catch (e) {
-      console.error("Failed to save slides to localStorage", e);
+    } catch (e: any) {
+      if (e.name === "QuotaExceededError" || e.code === 22 || e.name === "NS_ERROR_DOM_QUOTA_REACHED") {
+        console.warn("LocalStorage quota exceeded for slides. Trying to clear custom assets first to make room...");
+        try {
+          const gallery = localStorage.getItem("cinematic_asset_gallery");
+          if (gallery) {
+            const parsed = JSON.parse(gallery);
+            if (Array.isArray(parsed) && parsed.length > 5) {
+              const pruned = parsed.slice(0, 5);
+              localStorage.setItem("cinematic_asset_gallery", JSON.stringify(pruned));
+              setGalleryAssets(pruned);
+              
+              // Retry saving slides
+              localStorage.setItem("cinematic_slides_data", JSON.stringify(slides));
+              setPresetFeedback("Storage space freed. Stored gallery assets were cleared/pruned to save your project slides.");
+              setTimeout(() => setPresetFeedback(null), 5000);
+              return;
+            }
+          }
+        } catch (err) {
+          console.error("Failed to prune gallery for slides", err);
+        }
+        console.error("Failed to save slides even after clearing gallery space.", e);
+      } else {
+        console.error("Failed to save slides to localStorage", e);
+      }
     }
   }, [slides]);
 
@@ -690,52 +865,95 @@ export default function App() {
   }, [isPlaying, currentIndex, slides]);
 
   // Bulk Image Upload Handler
-  const processUploadedFiles = (files: FileList) => {
-    const newSlidesList: VideoSlide[] = [];
-    const imageFiles = Array.from(files).filter(f => f.type.startsWith("image/"));
+  const processUploadedFiles = async (files: FileList) => {
+    const imageFiles = (Array.from(files) as File[]).filter(f => f.type.startsWith("image/"));
+    if (imageFiles.length === 0) return;
 
-    let loadedCount = 0;
-    imageFiles.forEach((file, index) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const dataUrl = event.target?.result as string;
-        
-        // Pick creative random transitions for smooth visual variation
-        const transitions: Array<VideoSlide["transition"]> = [
-          "zoom", "panLeft", "panRight", "slideUp", "slideLeft", "slideRight", "blurFade", "retroSpin"
-        ];
-        const transition = transitions[index % transitions.length];
+    try {
+      const processedResults = await Promise.all(
+        imageFiles.map(async (file, index) => {
+          try {
+            const dataUrl = await compressImage(file);
+            // Pick creative random transitions for smooth visual variation
+            const transitions: Array<VideoSlide["transition"]> = [
+              "zoom", "panLeft", "panRight", "slideUp", "slideLeft", "slideRight", "blurFade", "retroSpin"
+            ];
+            const transition = transitions[index % transitions.length];
 
-        // Format a human-readable name without file extension
-        const prettyName = file.name.replace(/\.[^/.]+$/, "").substring(0, 20);
+            // Format a human-readable name without file extension
+            const prettyName = file.name.replace(/\.[^/.]+$/, "").substring(0, 20);
 
-        newSlidesList.push({
-          id: `slide_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 5)}`,
-          url: dataUrl,
-          name: file.name,
-          duration: 3,
-          transition,
-          caption: `${prettyName} Memory`,
-          fitMode: "cover",
-          zoomMultiplier: 1.0,
-          showSubtitle: true
-        });
+            return {
+              id: `slide_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 5)}`,
+              url: dataUrl,
+              name: file.name,
+              duration: 3,
+              transition,
+              caption: `${prettyName} Memory`,
+              fitMode: "cover",
+              zoomMultiplier: 1.0,
+              showSubtitle: true
+            } as VideoSlide;
+          } catch (err) {
+            console.error(`Error compressing image ${file.name}`, err);
+            // Fallback to reading raw file if compression fails
+            return new Promise<VideoSlide | null>((resolve) => {
+              const reader = new FileReader();
+              reader.onload = (event) => {
+                const dataUrl = event.target?.result as string;
+                const transitions: Array<VideoSlide["transition"]> = [
+                  "zoom", "panLeft", "panRight", "slideUp", "slideLeft", "slideRight", "blurFade", "retroSpin"
+                ];
+                const transition = transitions[index % transitions.length];
+                const prettyName = file.name.replace(/\.[^/.]+$/, "").substring(0, 20);
+                resolve({
+                  id: `slide_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 5)}`,
+                  url: dataUrl,
+                  name: file.name,
+                  duration: 3,
+                  transition,
+                  caption: `${prettyName} Memory`,
+                  fitMode: "cover",
+                  zoomMultiplier: 1.0,
+                  showSubtitle: true
+                });
+              };
+              reader.onerror = () => resolve(null);
+              reader.readAsDataURL(file);
+            });
+          }
+        })
+      );
 
-        loadedCount++;
-        if (loadedCount === imageFiles.length) {
-          setSlides(prev => {
-            const combined = [...prev, ...newSlidesList];
-            // If we previously had no slides, select the first one
-            if (prev.length === 0 && combined.length > 0) {
-              setSelectedSlideId(combined[0].id);
-              setCurrentIndex(0);
-            }
-            return combined;
-          });
+      const validSlides = processedResults.filter((s): s is VideoSlide => s !== null);
+      if (validSlides.length === 0) return;
+
+      // Sync with Asset Gallery
+      const newAssets: GalleryAsset[] = validSlides.map((slide) => ({
+        id: `asset_${slide.id}`,
+        url: slide.url,
+        name: slide.name,
+        addedAt: Date.now()
+      }));
+
+      setGalleryAssets(prev => {
+        const existingUrls = new Set(prev.map(a => a.url));
+        const filteredNew = newAssets.filter(a => !existingUrls.has(a.url));
+        return [...filteredNew, ...prev];
+      });
+
+      setSlides(prev => {
+        const combined = [...prev, ...validSlides];
+        // If we previously had no slides, select the first one
+        if (prev.length === 0 && combined.length > 0) {
+          setSelectedSlideId(combined[0].id);
+          setCurrentIndex(0);
         }
-      };
-      reader.readAsDataURL(file);
-    });
+        return combined;
+      });
+    } catch (e) {
+      console.error("Error processing uploaded files:", e);
+    }
   };
 
   const handleImageFileChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -757,8 +975,263 @@ export default function App() {
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDraggingOver(false);
-    if (e.dataTransfer.files) {
+
+    // Check if dragging an asset from our library
+    const assetUrl = e.dataTransfer.getData("text/plain");
+    const assetName = e.dataTransfer.getData("application/x-asset-name") || "Library Photo";
+    
+    if (assetUrl && (assetUrl.startsWith("http") || assetUrl.startsWith("data:image"))) {
+      const transitions: Array<VideoSlide["transition"]> = [
+        "zoom", "panLeft", "panRight", "slideUp", "slideLeft", "slideRight", "blurFade", "retroSpin"
+      ];
+      const transition = transitions[slides.length % transitions.length];
+      const prettyName = assetName.replace(/\.[^/.]+$/, "").substring(0, 20);
+      
+      const newSlide: VideoSlide = {
+        id: `slide_asset_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        url: assetUrl,
+        name: assetName,
+        duration: 3,
+        transition,
+        caption: `${prettyName} Memory`,
+        fitMode: "cover",
+        zoomMultiplier: 1.0,
+        showSubtitle: true
+      };
+      
+      setSlides(prev => {
+        const combined = [...prev, newSlide];
+        if (prev.length === 0) {
+          setSelectedSlideId(newSlide.id);
+          setCurrentIndex(0);
+        }
+        return combined;
+      });
+      return;
+    }
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       processUploadedFiles(e.dataTransfer.files);
+    }
+  };
+
+  // --- ASSET GALLERY CORE HELPERS ---
+
+  // Handle uploading photos directly into the Asset Gallery sidebar
+  const handleAssetUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return;
+    const files = (Array.from(e.target.files) as File[]).filter(f => f.type.startsWith("image/"));
+    if (files.length === 0) return;
+
+    try {
+      const processedResults = await Promise.all(
+        files.map(async (file, index) => {
+          try {
+            const dataUrl = await compressImage(file);
+            return {
+              id: `asset_upload_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 5)}`,
+              url: dataUrl,
+              name: file.name,
+              addedAt: Date.now()
+            } as GalleryAsset;
+          } catch (err) {
+            console.error(`Error compressing gallery image ${file.name}`, err);
+            return new Promise<GalleryAsset | null>((resolve) => {
+              const reader = new FileReader();
+              reader.onload = (event) => {
+                const dataUrl = event.target?.result as string;
+                resolve({
+                  id: `asset_upload_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 5)}`,
+                  url: dataUrl,
+                  name: file.name,
+                  addedAt: Date.now()
+                });
+              };
+              reader.onerror = () => resolve(null);
+              reader.readAsDataURL(file);
+            });
+          }
+        })
+      );
+
+      const validAssets = processedResults.filter((a): a is GalleryAsset => a !== null);
+      if (validAssets.length > 0) {
+        setGalleryAssets(prev => [...validAssets, ...prev]);
+      }
+    } catch (err) {
+      console.error("Error uploading assets:", err);
+    }
+  };
+
+  // Re-ordering within the Asset Gallery via HTML5 Drag & Drop
+  const handleDragStartAsset = (e: React.DragEvent, index: number) => {
+    setDraggedAssetIdx(index);
+    e.dataTransfer.effectAllowed = "copyMove";
+    const asset = galleryAssets[index];
+    e.dataTransfer.setData("text/plain", asset.url);
+    e.dataTransfer.setData("application/x-asset-id", asset.id);
+    e.dataTransfer.setData("application/x-asset-name", asset.name);
+  };
+
+  const handleDragOverAsset = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggedAssetIdx === null || draggedAssetIdx === index) return;
+    
+    const updated = [...galleryAssets];
+    const [moved] = updated.splice(draggedAssetIdx, 1);
+    updated.splice(index, 0, moved);
+    setDraggedAssetIdx(index);
+    setGalleryAssets(updated);
+  };
+
+  const handleDropAsset = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDraggedAssetIdx(null);
+  };
+
+  const handleDragEndAsset = () => {
+    setDraggedAssetIdx(null);
+  };
+
+  // Manual Arrow Button Re-ordering (for fallback & high accessibility)
+  const moveAssetInGallery = (index: number, direction: "up" | "down") => {
+    if (direction === "up" && index === 0) return;
+    if (direction === "down" && index === galleryAssets.length - 1) return;
+    
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    const updated = [...galleryAssets];
+    const temp = updated[index];
+    updated[index] = updated[targetIndex];
+    updated[targetIndex] = temp;
+    setGalleryAssets(updated);
+  };
+
+  // Batch Select Toggle for single item
+  const toggleAssetSelection = (id: string) => {
+    setSelectedAssetIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  // Select All/Deselect All Utility
+  const selectAllAssets = () => {
+    if (selectedAssetIds.size === galleryAssets.length) {
+      setSelectedAssetIds(new Set());
+    } else {
+      setSelectedAssetIds(new Set(galleryAssets.map(a => a.id)));
+    }
+  };
+
+  // Append a single gallery photo to the project timeline
+  const addAssetToProject = (asset: GalleryAsset) => {
+    const transitions: Array<VideoSlide["transition"]> = [
+      "zoom", "panLeft", "panRight", "slideUp", "slideLeft", "slideRight", "blurFade", "retroSpin"
+    ];
+    const transition = transitions[slides.length % transitions.length];
+    const prettyName = asset.name.replace(/\.[^/.]+$/, "").substring(0, 20);
+    
+    const newSlide: VideoSlide = {
+      id: `slide_asset_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+      url: asset.url,
+      name: asset.name,
+      duration: 3,
+      transition,
+      caption: `${prettyName} Memory`,
+      fitMode: "cover",
+      zoomMultiplier: 1.0,
+      showSubtitle: true
+    };
+    
+    setSlides(prev => {
+      const combined = [...prev, newSlide];
+      if (prev.length === 0) {
+        setSelectedSlideId(newSlide.id);
+        setCurrentIndex(0);
+      }
+      return combined;
+    });
+    
+    setPresetFeedback(`Added "${prettyName}" to the project timeline!`);
+    setTimeout(() => setPresetFeedback(null), 3000);
+  };
+
+  // Append batch-selected photos to the project timeline
+  const addSelectedAssetsToProject = () => {
+    if (selectedAssetIds.size === 0) return;
+    
+    const selectedAssets = galleryAssets.filter(a => selectedAssetIds.has(a.id));
+    const newSlidesList: VideoSlide[] = [];
+    
+    selectedAssets.forEach((asset, index) => {
+      const transitions: Array<VideoSlide["transition"]> = [
+        "zoom", "panLeft", "panRight", "slideUp", "slideLeft", "slideRight", "blurFade", "retroSpin"
+      ];
+      const transition = transitions[(slides.length + index) % transitions.length];
+      const prettyName = asset.name.replace(/\.[^/.]+$/, "").substring(0, 20);
+      
+      newSlidesList.push({
+        id: `slide_asset_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 5)}`,
+        url: asset.url,
+        name: asset.name,
+        duration: 3,
+        transition,
+        caption: `${prettyName} Memory`,
+        fitMode: "cover",
+        zoomMultiplier: 1.0,
+        showSubtitle: true
+      });
+    });
+    
+    setSlides(prev => {
+      const combined = [...prev, ...newSlidesList];
+      if (prev.length === 0 && combined.length > 0) {
+        setSelectedSlideId(combined[0].id);
+        setCurrentIndex(0);
+      }
+      return combined;
+    });
+    
+    setSelectedAssetIds(new Set());
+    setPresetFeedback(`Successfully added ${selectedAssets.length} selected photos to the timeline!`);
+    setTimeout(() => setPresetFeedback(null), 4000);
+  };
+
+  // Delete a photo from stored gallery assets
+  const deleteAssetFromGallery = (id: string) => {
+    setGalleryAssets(prev => prev.filter(a => a.id !== id));
+    setSelectedAssetIds(prev => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  };
+
+  // Drag-and-drop target to replace the image of a specific slide
+  const handleDropOnSlide = (e: React.DragEvent, targetIdx: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const assetUrl = e.dataTransfer.getData("text/plain");
+    const assetName = e.dataTransfer.getData("application/x-asset-name") || "Library Photo";
+    if (assetUrl && (assetUrl.startsWith("http") || assetUrl.startsWith("data:image"))) {
+      setSlides(prev => {
+        const copy = [...prev];
+        if (copy[targetIdx]) {
+          copy[targetIdx] = {
+            ...copy[targetIdx],
+            url: assetUrl,
+            name: assetName
+          };
+        }
+        return copy;
+      });
+      setPresetFeedback(`Replaced slide #${targetIdx + 1} with dropped gallery photo.`);
+      setTimeout(() => setPresetFeedback(null), 3000);
     }
   };
 
@@ -830,6 +1303,15 @@ export default function App() {
     setSelectedSlideId(demoSlides[0].id);
     setCurrentIndex(0);
     setActiveSoundtrackType("synth");
+
+    // Populate Asset Gallery with these demo slides as well
+    const demoAssets: GalleryAsset[] = demoSlides.map((s, idx) => ({
+      id: `asset_demo_${idx}_${Date.now()}`,
+      url: s.url,
+      name: s.name,
+      addedAt: Date.now() - idx * 1000
+    }));
+    setGalleryAssets(demoAssets);
   };
 
   // Duplicate an existing slide for advanced editing
@@ -882,6 +1364,21 @@ export default function App() {
 
     try {
       const canvas = document.createElement("canvas");
+      canvas.id = "cinematic-export-canvas";
+      
+      // Crucial Fix: In Chromium-based browsers, canvas.captureStream() on an offscreen canvas
+      // that is not appended to the DOM can fail or yield blank/empty frames.
+      // We append it to the DOM styled as fully hidden offscreen.
+      canvas.style.position = "fixed";
+      canvas.style.left = "-99999px";
+      canvas.style.top = "-99999px";
+      canvas.style.width = "400px";
+      canvas.style.height = "225px";
+      canvas.style.opacity = "0.01";
+      canvas.style.pointerEvents = "none";
+      canvas.style.zIndex = "-9999";
+      document.body.appendChild(canvas);
+
       // Choose dimensions based on selected aspect ratio and export resolution preset (720p, 1080p, 4k, 8k)
       let canvasW = 1920;
       let canvasH = 1080;
@@ -950,8 +1447,26 @@ export default function App() {
       if (!ctx) throw new Error("Canvas 2D context retrieval failed");
 
       const stream = canvas.captureStream(30); // 30 Frames Per Second
+      
+      // Robust MIME type detection to guarantee recorder doesn't throw unsupported codecs errors
+      let selectedMimeType = "video/webm";
+      const candidates = [
+        "video/webm;codecs=vp9",
+        "video/webm;codecs=vp8",
+        "video/webm;codecs=h264",
+        "video/webm",
+        "video/mp4;codecs=avc1",
+        "video/mp4"
+      ];
+      for (const mime of candidates) {
+        if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(mime)) {
+          selectedMimeType = mime;
+          break;
+        }
+      }
+
       const recorder = new MediaRecorder(stream, {
-        mimeType: "video/webm;codecs=vp9",
+        mimeType: selectedMimeType,
       });
 
       const videoChunks: Blob[] = [];
@@ -960,9 +1475,17 @@ export default function App() {
       };
 
       recorder.onstop = async () => {
-        const fileBlob = new Blob(videoChunks, { type: "video/webm" });
+        // Clean up canvas element from DOM
+        const el = document.getElementById("cinematic-export-canvas");
+        if (el && el.parentNode) {
+          el.parentNode.removeChild(el);
+        }
 
-        if (exportFormat === "mp4") {
+        const rawRecordedBlob = new Blob(videoChunks, { type: selectedMimeType });
+        const recordedIsAlreadyMp4 = selectedMimeType.includes("mp4");
+
+        // Transcode if target format is mp4 and recorded file is webm
+        if (exportFormat === "mp4" && !recordedIsAlreadyMp4) {
           setExportStatusText("Converting WebM to highly-compatible MP4...");
           setExportProgress(98);
 
@@ -972,7 +1495,7 @@ export default function App() {
               headers: {
                 "Content-Type": "video/webm",
               },
-              body: fileBlob,
+              body: rawRecordedBlob,
             });
 
             if (!response.ok) {
@@ -980,8 +1503,10 @@ export default function App() {
               throw new Error(errData.error || "Server transcode failed");
             }
 
+            // Create explicitly typed video/mp4 Blob from response so media players recognize it immediately
             const mp4Blob = await response.blob();
-            const videoUrl = URL.createObjectURL(mp4Blob);
+            const playableMp4Blob = new Blob([mp4Blob], { type: "video/mp4" });
+            const videoUrl = URL.createObjectURL(playableMp4Blob);
 
             const dl = document.createElement("a");
             dl.href = videoUrl;
@@ -994,7 +1519,7 @@ export default function App() {
             alert("MP4 conversion failed. Downloading high-quality WebM fallback instead. Error: " + err.message);
             
             // Fallback download WebM
-            const videoUrl = URL.createObjectURL(fileBlob);
+            const videoUrl = URL.createObjectURL(rawRecordedBlob);
             const dl = document.createElement("a");
             dl.href = videoUrl;
             dl.download = `college_memory_slideshow_${Date.now()}.webm`;
@@ -1003,11 +1528,13 @@ export default function App() {
             document.body.removeChild(dl);
           }
         } else {
-          // Standard webm download
-          const videoUrl = URL.createObjectURL(fileBlob);
+          // Standard webm download (or native mp4 download if browser natively recorded to mp4)
+          const fileExtension = recordedIsAlreadyMp4 ? "mp4" : "webm";
+          const finalDownloadBlob = new Blob([rawRecordedBlob], { type: recordedIsAlreadyMp4 ? "video/mp4" : "video/webm" });
+          const videoUrl = URL.createObjectURL(finalDownloadBlob);
           const dl = document.createElement("a");
           dl.href = videoUrl;
-          dl.download = `college_memory_slideshow_${Date.now()}.webm`;
+          dl.download = `college_memory_slideshow_${Date.now()}.${fileExtension}`;
           document.body.appendChild(dl);
           dl.click();
           document.body.removeChild(dl);
@@ -1136,23 +1663,23 @@ export default function App() {
           dx += parallaxDriftX;
           dy += parallaxDriftY;
 
-          // Ratio calculation for Cover vs Contain
-          const imgRatio = img.width / img.height;
+          // Ratio calculation for Cover vs Contain without division-by-zero risk
+          const imgRatio = (img.width && img.height) ? (img.width / img.height) : 1;
           const canvasRatio = canvas.width / canvas.height;
           let baseScale = 1.0;
           const fit = activeSlide.fitMode || "cover";
 
           if (fit === "cover") {
             if (imgRatio > canvasRatio) {
-              baseScale = canvas.height / img.height;
+              baseScale = img.height ? (canvas.height / img.height) : 1;
             } else {
-              baseScale = canvas.width / img.width;
+              baseScale = img.width ? (canvas.width / img.width) : 1;
             }
           } else {
             if (imgRatio > canvasRatio) {
-              baseScale = canvas.width / img.width;
+              baseScale = img.width ? (canvas.width / img.width) : 1;
             } else {
-              baseScale = canvas.height / img.height;
+              baseScale = img.height ? (canvas.height / img.height) : 1;
             }
           }
 
@@ -1160,8 +1687,8 @@ export default function App() {
           baseScale *= (activeSlide.zoomMultiplier || 1.0);
 
           const finalScale = baseScale * transitionScale;
-          const renderW = img.width * finalScale;
-          const renderH = img.height * finalScale;
+          const renderW = img.width ? (img.width * finalScale) : canvas.width;
+          const renderH = img.height ? (img.height * finalScale) : canvas.height;
 
           ctx.save();
           let filterString = "";
@@ -1524,6 +2051,11 @@ export default function App() {
 
       compileNextSlide();
     } catch (e: any) {
+      // Clean up the canvas from the DOM in case of compilation failure
+      const el = document.getElementById("cinematic-export-canvas");
+      if (el && el.parentNode) {
+        el.parentNode.removeChild(el);
+      }
       alert("Failed compiling slides: " + e.message);
       setIsExporting(false);
     }
@@ -1751,6 +2283,18 @@ export default function App() {
             </div>
 
             <button
+              onClick={() => setIsAssetGalleryOpen(!isAssetGalleryOpen)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow ${
+                isAssetGalleryOpen
+                  ? "bg-amber-500/15 border border-amber-500 text-amber-400"
+                  : "bg-stone-900 border border-stone-800 hover:border-amber-500/30 text-stone-200"
+              }`}
+            >
+              <Library className="w-4 h-4 text-amber-500" />
+              <span>Asset Gallery ({galleryAssets.length})</span>
+            </button>
+
+            <button
               onClick={loadDemoProject}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-stone-900 border border-stone-800 hover:border-amber-500/30 text-stone-200 transition-all cursor-pointer shadow"
             >
@@ -1813,8 +2357,227 @@ export default function App() {
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start flex-1">
-            {/* LEFT COLUMN: Cinematic Slide Preview Player (Span 7) */}
-            <section className="lg:col-span-7 space-y-6">
+            {/* ASSET GALLERY SIDEBAR */}
+            <AnimatePresence mode="popLayout">
+              {isAssetGalleryOpen && (
+                <motion.aside
+                  id="asset-gallery-sidebar"
+                  initial={{ opacity: 0, x: -30, width: 0 }}
+                  animate={{ opacity: 1, x: 0, width: "auto" }}
+                  exit={{ opacity: 0, x: -30, width: 0 }}
+                  transition={{ duration: 0.35, ease: "easeInOut" }}
+                  className="lg:col-span-3 bg-stone-900 border border-stone-800 rounded-3xl p-5 shadow-2xl h-[820px] flex flex-col overflow-hidden sticky top-4"
+                >
+                  {/* Sidebar Header */}
+                  <div className="flex items-center justify-between border-b border-stone-800 pb-3 mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="p-2 bg-amber-500/10 text-amber-400 rounded-xl">
+                        <Images className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-stone-200 font-mono">
+                          Asset Gallery
+                        </h3>
+                        <p className="text-[10px] text-stone-400 font-mono">
+                          {galleryAssets.length} {galleryAssets.length === 1 ? "photo" : "photos"} stored
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setIsAssetGalleryOpen(false)}
+                      className="p-1 rounded-lg text-stone-400 hover:text-stone-200 hover:bg-stone-800 transition-colors cursor-pointer"
+                      title="Hide gallery"
+                    >
+                      <span className="text-[10px] font-mono font-bold">✕ Close</span>
+                    </button>
+                  </div>
+
+                  {/* Upload and Bulk Controls */}
+                  <div className="space-y-2.5 mb-3.5">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => sidebarFileInputRef.current?.click()}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold rounded-xl text-[10px] transition-all cursor-pointer shadow-md"
+                        title="Upload directly to asset library"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        Upload To Gallery
+                      </button>
+                      <input
+                        type="file"
+                        ref={sidebarFileInputRef}
+                        onChange={handleAssetUpload}
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                      />
+                      
+                      <button
+                        onClick={selectAllAssets}
+                        disabled={galleryAssets.length === 0}
+                        className="px-2.5 py-2 bg-stone-950 hover:bg-stone-800 border border-stone-800 hover:border-stone-700 text-stone-300 font-bold rounded-xl text-[10px] transition-colors cursor-pointer disabled:opacity-40"
+                        title="Select all stored assets"
+                      >
+                        {selectedAssetIds.size === galleryAssets.length && galleryAssets.length > 0 ? "Clear All" : "Select All"}
+                      </button>
+                    </div>
+
+                    {/* Batch insertion actions */}
+                    {selectedAssetIds.size > 0 && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 10 }}
+                        className="bg-amber-500/10 border border-amber-500/20 p-2.5 rounded-xl flex items-center justify-between gap-2"
+                      >
+                        <span className="text-[10px] font-bold text-amber-400 font-mono">
+                          {selectedAssetIds.size} Selected
+                        </span>
+                        <div className="flex gap-1.5">
+                          <button
+                            onClick={addSelectedAssetsToProject}
+                            className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-[9px] font-mono rounded-lg transition-colors cursor-pointer"
+                          >
+                            Add To Timeline (+{selectedAssetIds.size})
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (confirm(`Remove these ${selectedAssetIds.size} assets from your gallery?`)) {
+                                selectedAssetIds.forEach(id => deleteAssetFromGallery(id));
+                              }
+                            }}
+                            className="p-1.5 bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/20 text-rose-400 rounded-lg transition-colors cursor-pointer"
+                            title="Delete selected assets"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </motion.div>
+                    )}
+                  </div>
+
+                  {/* Scrollable Gallery Grid */}
+                  <div className="flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-stone-800 scrollbar-track-transparent">
+                    {galleryAssets.length === 0 ? (
+                      <div className="h-full flex flex-col items-center justify-center text-center p-4 text-stone-500 space-y-3">
+                        <div className="p-3 bg-stone-950 border border-stone-850 rounded-full">
+                          <Library className="w-8 h-8 text-stone-600 animate-pulse" />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs font-bold text-stone-300">Your gallery is empty</p>
+                          <p className="text-[9px] text-stone-500 max-w-[180px] leading-relaxed mx-auto">
+                            Bulk uploads and loaded demo snapshots will automatically appear here. Or upload images directly above.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2 pb-4">
+                        {galleryAssets.map((asset, index) => {
+                          const isSelected = selectedAssetIds.has(asset.id);
+                          return (
+                            <div
+                              key={asset.id}
+                              draggable
+                              onDragStart={(e) => handleDragStartAsset(e, index)}
+                              onDragOver={(e) => handleDragOverAsset(e, index)}
+                              onDrop={handleDropAsset}
+                              onDragEnd={handleDragEndAsset}
+                              className={`group/asset relative aspect-square bg-stone-950 rounded-xl overflow-hidden border transition-all duration-200 cursor-grab active:cursor-grabbing ${
+                                isSelected
+                                  ? "border-amber-500 ring-2 ring-amber-500/20 shadow-md"
+                                  : "border-stone-800 hover:border-stone-600"
+                              }`}
+                            >
+                              <img
+                                src={asset.url}
+                                alt={asset.name}
+                                className="w-full h-full object-cover select-none pointer-events-none group-hover/asset:scale-105 transition-transform duration-300"
+                                referrerPolicy="no-referrer"
+                              />
+
+                              {/* Gradient shading */}
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 opacity-60 group-hover/asset:opacity-75 transition-opacity" />
+
+                              {/* Batch Selection Checkbox overlay */}
+                              <div className="absolute top-1.5 left-1.5 z-10">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleAssetSelection(asset.id)}
+                                  className={`w-4 h-4 rounded border flex items-center justify-center transition-all cursor-pointer ${
+                                    isSelected
+                                      ? "bg-amber-500 border-amber-500 text-stone-950"
+                                      : "bg-black/50 border-stone-600 hover:border-amber-500/80"
+                                  }`}
+                                >
+                                  {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                                </button>
+                              </div>
+
+                              {/* Name/Size Label */}
+                              <span className="absolute bottom-1 left-1 right-1 text-[8px] font-mono text-stone-300 truncate pointer-events-none bg-stone-950/70 px-1 py-0.5 rounded backdrop-blur-[2px]">
+                                {asset.name || "Unnamed Asset"}
+                              </span>
+
+                              {/* Interactive Hover Actions Panel */}
+                              <div className="absolute inset-0 bg-stone-950/60 opacity-0 group-hover/asset:opacity-100 flex flex-col justify-between p-1.5 transition-all duration-200">
+                                {/* Top corner actions */}
+                                <div className="flex justify-end gap-1 select-none">
+                                  <button
+                                    onClick={() => deleteAssetFromGallery(asset.id)}
+                                    className="p-1 bg-stone-900 hover:bg-rose-500/80 border border-stone-800 text-stone-400 hover:text-white rounded-md transition-colors cursor-pointer"
+                                    title="Remove from gallery"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+
+                                {/* Drag indicator & click insertion */}
+                                <div className="space-y-1">
+                                  <div className="flex items-center justify-center gap-1">
+                                    <button
+                                      onClick={() => moveAssetInGallery(index, "up")}
+                                      disabled={index === 0}
+                                      className="p-0.5 bg-stone-900 border border-stone-800 text-stone-400 hover:text-white rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                                      title="Move asset up"
+                                    >
+                                      <ChevronLeft className="w-2.5 h-2.5 rotate-90" />
+                                    </button>
+                                    <button
+                                      onClick={() => moveAssetInGallery(index, "down")}
+                                      disabled={index === galleryAssets.length - 1}
+                                      className="p-0.5 bg-stone-900 border border-stone-800 text-stone-400 hover:text-white rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                                      title="Move asset down"
+                                    >
+                                      <ChevronRight className="w-2.5 h-2.5 rotate-90" />
+                                    </button>
+                                  </div>
+                                  
+                                  <button
+                                    onClick={() => addAssetToProject(asset)}
+                                    className="w-full py-1 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-[8px] rounded-lg shadow-sm transition-all flex items-center justify-center gap-0.5 cursor-pointer uppercase"
+                                  >
+                                    <Plus className="w-2.5 h-2.5 stroke-[3]" />
+                                    <span>Add Frame</span>
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Pro-Tip helper */}
+                  <div className="bg-stone-950 p-2.5 rounded-2xl border border-stone-850/60 mt-2 text-stone-500 text-[8px] leading-snug">
+                    💡 <strong>Drag & Drop Support:</strong> Drag photos out of this gallery directly onto the timeline below to insert scenes, or drop onto the preview screen to swap slides!
+                  </div>
+                </motion.aside>
+              )}
+            </AnimatePresence>
+
+            {/* LEFT COLUMN: Cinematic Slide Preview Player */}
+            <section className={`${isAssetGalleryOpen ? "lg:col-span-5" : "lg:col-span-7"} space-y-6 transition-all duration-300`}>
               {/* High-Fidelity Interactive Slideshow Box */}
               <div className="bg-stone-900 border border-stone-800 rounded-3xl p-6 shadow-2xl relative">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-4">
@@ -2303,6 +3066,159 @@ export default function App() {
                 </div>
               </div>
 
+              {/* PRE-EXPORT VIDEO STORYBOARD SUMMARY */}
+              <AnimatePresence>
+                {slides.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    transition={{ duration: 0.4, ease: "easeOut" }}
+                    className="bg-stone-900 border border-stone-800 rounded-3xl p-6 shadow-2xl space-y-4"
+                  >
+                    <div className="flex items-center justify-between border-b border-stone-800/80 pb-3 mb-1">
+                      <div className="flex items-center gap-2">
+                        <Video className="w-5 h-5 text-amber-500 animate-pulse" />
+                        <h3 className="text-sm font-extrabold text-stone-200 uppercase tracking-wider font-mono">
+                          Video Summary & Script Sequence
+                        </h3>
+                      </div>
+                      <span className="text-[10px] font-mono text-emerald-400 font-bold bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20 animate-pulse flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                        Ready to Render
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-stone-400 leading-relaxed">
+                      Review your sequence timeline, subtitles, and total estimated render duration below. Click any storyboard scene to jump directly to its editor frame.
+                    </p>
+
+                    {/* Summary Metric Stats Dashboard Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                      <div className="bg-stone-950 p-2.5 rounded-xl border border-stone-800/70 text-center">
+                        <span className="block text-[8px] font-mono text-stone-500 uppercase tracking-wider">Total Duration</span>
+                        <span className="text-sm font-extrabold text-amber-500 font-mono">
+                          {slides.reduce((acc, curr) => acc + curr.duration, 0)}s
+                        </span>
+                      </div>
+                      <div className="bg-stone-950 p-2.5 rounded-xl border border-stone-800/70 text-center">
+                        <span className="block text-[8px] font-mono text-stone-500 uppercase tracking-wider">Scenes count</span>
+                        <span className="text-sm font-extrabold text-stone-200 font-mono">
+                          {slides.length} Clips
+                        </span>
+                      </div>
+                      <div className="bg-stone-950 p-2.5 rounded-xl border border-stone-800/70 text-center">
+                        <span className="block text-[8px] font-mono text-stone-500 uppercase tracking-wider">Aspect Ratio</span>
+                        <span className="text-sm font-extrabold text-stone-200 font-mono">
+                          {videoAspectRatio}
+                        </span>
+                      </div>
+                      <div className="bg-stone-950 p-2.5 rounded-xl border border-stone-800/70 text-center">
+                        <span className="block text-[8px] font-mono text-stone-500 uppercase tracking-wider">Export Setup</span>
+                        <span className="text-xs font-bold text-amber-500/95 font-mono uppercase truncate block mt-0.5">
+                          {exportFormat} • {exportResolution}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Active Slide Captions & Duration Storyboard List */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-[10px] font-mono text-stone-500 uppercase tracking-wider px-1">
+                        <span>Timeline Script Sequence</span>
+                        <span>Duration / FX</span>
+                      </div>
+
+                      <div className="max-h-[220px] overflow-y-auto space-y-2 pr-1 scrollbar-thin scrollbar-thumb-stone-800 scrollbar-track-transparent">
+                        {slides.map((slide, idx) => {
+                          const isActive = currentIndex === idx;
+                          return (
+                            <div
+                              key={slide.id}
+                              onClick={() => {
+                                setCurrentIndex(idx);
+                                setProgress(0);
+                                setIsPlaying(false);
+                              }}
+                              className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between gap-3 group relative overflow-hidden ${
+                                isActive
+                                  ? "border-amber-500 bg-amber-500/5 shadow-md shadow-amber-500/5"
+                                  : "border-stone-800/80 bg-stone-950/40 hover:bg-stone-950/85 hover:border-stone-700"
+                              }`}
+                            >
+                              {/* Slide Scene Thumbnail with Number Overlay */}
+                              <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 bg-stone-950 border border-stone-800 relative group-hover:scale-[1.03] transition-transform">
+                                <img
+                                  src={slide.url}
+                                  alt={`Scene ${idx + 1}`}
+                                  className="w-full h-full object-cover pointer-events-none"
+                                  referrerPolicy="no-referrer"
+                                />
+                                <div className="absolute inset-0 bg-black/10" />
+                                <span className="absolute bottom-0 right-0 bg-stone-950/90 border-t border-l border-stone-800 text-[8px] font-mono font-extrabold text-amber-500 px-1 rounded-tl">
+                                  #{(idx + 1).toString().padStart(2, "0")}
+                                </span>
+                                {isActive && (
+                                  <div className="absolute inset-0 bg-amber-500/25 flex items-center justify-center">
+                                    <div className="w-2.5 h-2.5 bg-amber-500 rounded-full animate-ping" />
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Middle Column: Script line / Slide caption */}
+                              <div className="flex-1 min-w-0 space-y-1">
+                                <div className="flex items-center gap-1.5">
+                                  <span className={`text-[10px] font-bold font-mono ${isActive ? "text-amber-400" : "text-stone-300"}`}>
+                                    Scene {idx + 1}
+                                  </span>
+                                  {slide.name && (
+                                    <span className="text-[9px] text-stone-500 font-mono truncate max-w-[120px]">
+                                      ({slide.name})
+                                    </span>
+                                  )}
+                                </div>
+                                <p 
+                                  className={`text-xs truncate leading-snug font-medium ${
+                                    slide.caption 
+                                      ? "text-stone-200" 
+                                      : "text-stone-500 italic"
+                                  }`}
+                                >
+                                  {slide.caption ? `"${slide.caption}"` : "(No caption subtitle set)"}
+                                </p>
+                              </div>
+
+                              {/* Right Column: Duration, transition and optional effects badges */}
+                              <div className="flex flex-col items-end gap-1.5 flex-shrink-0 text-right">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[10px] font-mono font-bold text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/15">
+                                    {slide.duration}s
+                                  </span>
+                                </div>
+                                
+                                <div className="flex items-center gap-1 flex-wrap justify-end">
+                                  <span className="text-[8px] font-mono text-stone-400 bg-stone-900 border border-stone-800 px-1.5 py-0.5 rounded uppercase">
+                                    {slide.transition === "zoom" ? "Zoom In" : slide.transition === "zoomOut" ? "Zoom Out" : slide.transition === "panLeft" ? "Pan L" : slide.transition === "panRight" ? "Pan R" : slide.transition === "tiltUp" ? "Tilt U" : slide.transition === "tiltDown" ? "Tilt D" : slide.transition === "slideUp" ? "Slide U" : slide.transition === "slideLeft" ? "Slide L" : slide.transition === "slideRight" ? "Slide R" : slide.transition === "blurFade" ? "Blur" : slide.transition === "retroSpin" ? "Spin" : slide.transition === "vortex" ? "Vortex" : slide.transition === "glitch" ? "Glitch" : "Fade"}
+                                  </span>
+                                  {slide.vfxType && slide.vfxType !== "none" && (
+                                    <span className="text-[8px] font-mono text-amber-400 bg-amber-500/10 border border-amber-500/10 px-1 py-0.5 rounded flex items-center gap-0.5">
+                                      ✨ {slide.vfxType === "lens_flare" ? "Flare" : slide.vfxType === "light_leak" ? "Leak" : slide.vfxType === "film_grain" ? "Grain" : slide.vfxType === "snow" ? "Snow" : slide.vfxType === "rain" ? "Rain" : slide.vfxType === "vhs" ? "VHS" : "Bokeh"}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <p className="text-[9px] text-stone-500 leading-normal">
+                      💡 <strong>Pro Tip:</strong> All text captions will compile directly onto the final frame as high-contrast cinematic subtitles. Set durations and customize transition vectors per scene above to align with your soundtrack tempo.
+                    </p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               {/* Bulk Timeline Controls Area */}
               <div className="bg-stone-900/60 border border-stone-800 rounded-3xl p-5 shadow-xl space-y-4">
                 <div className="flex items-center justify-between">
@@ -2347,8 +3263,8 @@ export default function App() {
               </div>
             </section>
 
-            {/* RIGHT COLUMN: Slide Timeline & Soundtrack Customizer (Span 5) */}
-            <section className="lg:col-span-5 space-y-6">
+            {/* RIGHT COLUMN: Slide Timeline & Soundtrack Customizer */}
+            <section className={`${isAssetGalleryOpen ? "lg:col-span-4" : "lg:col-span-5"} space-y-6 transition-all duration-300`}>
               {/* Soundtrack Customizer Box */}
               <div className="bg-stone-900 border border-stone-800 rounded-3xl p-6 shadow-2xl space-y-4">
                 <div className="flex items-center gap-2">
@@ -3279,176 +4195,183 @@ export default function App() {
               )}
 
               {/* STYLES & PRESETS STUDIO */}
-              {slides.length > 0 && (
-                <div className="bg-stone-900 border border-stone-800 rounded-3xl p-6 shadow-2xl space-y-4">
-                  <div className="flex items-center justify-between border-b border-stone-800/80 pb-3 mb-1">
-                    <div className="flex items-center gap-2">
-                      <Bookmark className="w-5 h-5 text-amber-500" />
-                      <h3 className="text-sm font-extrabold text-stone-200 uppercase tracking-wider font-mono">
-                        Styles & Presets Studio
-                      </h3>
-                    </div>
-                    <span className="text-[10px] font-mono text-amber-500 font-bold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
-                      Live Templates
-                    </span>
-                  </div>
-
-                  {presetFeedback && (
-                    <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 p-2.5 rounded-xl text-xs flex items-center gap-2 animate-pulse font-medium">
-                      <Check className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                      <span>{presetFeedback}</span>
-                    </div>
-                  )}
-
-                  <p className="text-xs text-stone-400 leading-relaxed">
-                    Save your custom combination of transitions, artistic filters, camera pan, and cinematic VFX as reusable presets, or apply pre-built style templates instantly.
-                  </p>
-
-                  <div className="space-y-4">
-                    {/* Custom Preset Saving Form */}
-                    <div className="bg-stone-950 p-4 rounded-2xl border border-stone-800/80 space-y-3">
+              <AnimatePresence>
+                {slides.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    transition={{ duration: 0.4, ease: "easeOut" }}
+                    className="bg-stone-900 border border-stone-800 rounded-3xl p-6 shadow-2xl space-y-4"
+                  >
+                    <div className="flex items-center justify-between border-b border-stone-800/80 pb-3 mb-1">
                       <div className="flex items-center gap-2">
-                        <Save className="w-3.5 h-3.5 text-amber-500" />
-                        <span className="text-[10px] font-bold text-stone-300 font-mono uppercase">Save Active Frame Style as Preset</span>
+                        <Bookmark className="w-5 h-5 text-amber-500" />
+                        <h3 className="text-sm font-extrabold text-stone-200 uppercase tracking-wider font-mono">
+                          Styles & Presets Studio
+                        </h3>
                       </div>
-                      
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={newPresetName}
-                          onChange={(e) => setNewPresetName(e.target.value)}
-                          placeholder="e.g., Midnight Retro Cyber, Cinematic Noir 3D"
-                          className="flex-1 bg-stone-900 border border-stone-800 rounded-xl px-3.5 py-2 text-xs text-stone-200 focus:border-amber-500/50 focus:outline-none"
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" && newPresetName.trim()) {
-                              saveCurrentStylesAsPreset(newPresetName);
-                            }
-                          }}
-                        />
-                        <button
-                          onClick={() => saveCurrentStylesAsPreset(newPresetName)}
-                          disabled={!newPresetName.trim()}
-                          className="px-4 py-2 bg-amber-500 hover:bg-amber-400 disabled:bg-stone-800 disabled:text-stone-500 disabled:border-stone-850 text-stone-950 rounded-xl text-xs font-bold transition-all hover:scale-[1.02] cursor-pointer"
-                        >
-                          Save Preset
-                        </button>
-                      </div>
+                      <span className="text-[10px] font-mono text-amber-500 font-bold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                        Live Templates
+                      </span>
                     </div>
 
-                    {/* Presets List Sections (Curated) */}
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-bold text-stone-400 font-mono uppercase">Curated Cinematic Templates</span>
-                        <span className="text-[8px] text-stone-500 font-mono">Click to Apply</span>
+                    {presetFeedback && (
+                      <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 p-2.5 rounded-xl text-xs flex items-center gap-2 animate-pulse font-medium">
+                        <Check className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                        <span>{presetFeedback}</span>
+                      </div>
+                    )}
+
+                    <p className="text-xs text-stone-400 leading-relaxed">
+                      Save your custom combination of transitions, artistic filters, camera pan, and cinematic VFX as reusable presets, or apply pre-built style templates instantly.
+                    </p>
+
+                    <div className="space-y-4">
+                      {/* Custom Preset Saving Form */}
+                      <div className="bg-stone-950 p-4 rounded-2xl border border-stone-800/80 space-y-3">
+                        <div className="flex items-center gap-2">
+                          <Save className="w-3.5 h-3.5 text-amber-500" />
+                          <span className="text-[10px] font-bold text-stone-300 font-mono uppercase">Save Active Frame Style as Preset</span>
+                        </div>
+                        
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={newPresetName}
+                            onChange={(e) => setNewPresetName(e.target.value)}
+                            placeholder="e.g., Midnight Retro Cyber, Cinematic Noir 3D"
+                            className="flex-1 bg-stone-900 border border-stone-800 rounded-xl px-3.5 py-2 text-xs text-stone-200 focus:border-amber-500/50 focus:outline-none"
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && newPresetName.trim()) {
+                                saveCurrentStylesAsPreset(newPresetName);
+                              }
+                            }}
+                          />
+                          <button
+                            onClick={() => saveCurrentStylesAsPreset(newPresetName)}
+                            disabled={!newPresetName.trim()}
+                            className="px-4 py-2 bg-amber-500 hover:bg-amber-400 disabled:bg-stone-800 disabled:text-stone-500 disabled:border-stone-850 text-stone-950 rounded-xl text-xs font-bold transition-all hover:scale-[1.02] cursor-pointer"
+                          >
+                            Save Preset
+                          </button>
+                        </div>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-stone-800 scrollbar-track-transparent">
-                        {SYSTEM_PRESETS.map((preset) => {
-                          const isActive = slides[currentIndex] && 
-                            slides[currentIndex].transition === preset.transition && 
-                            slides[currentIndex].filter === preset.filter && 
-                            slides[currentIndex].vfxType === preset.vfxType;
-                          return (
-                            <div 
-                              key={preset.id}
-                              className={`p-2.5 rounded-xl border text-left transition-all relative flex flex-col justify-between gap-2 bg-stone-950/40 hover:bg-stone-950/90 cursor-pointer group ${
-                                isActive ? "border-amber-500 bg-amber-500/5" : "border-stone-800/80 hover:border-stone-700"
-                              }`}
-                            >
-                              <div className="space-y-0.5">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[11px] font-bold text-stone-200 group-hover:text-amber-400 transition-colors">
-                                    {preset.name}
+                      {/* Presets List Sections (Curated) */}
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-stone-400 font-mono uppercase">Curated Cinematic Templates</span>
+                          <span className="text-[8px] text-stone-500 font-mono">Click to Apply</span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-stone-800 scrollbar-track-transparent">
+                          {SYSTEM_PRESETS.map((preset) => {
+                            const isActive = slides[currentIndex] && 
+                              slides[currentIndex].transition === preset.transition && 
+                              slides[currentIndex].filter === preset.filter && 
+                              slides[currentIndex].vfxType === preset.vfxType;
+                            return (
+                              <div 
+                                key={preset.id}
+                                className={`p-2.5 rounded-xl border text-left transition-all relative flex flex-col justify-between gap-2 bg-stone-950/40 hover:bg-stone-950/90 cursor-pointer group ${
+                                  isActive ? "border-amber-500 bg-amber-500/5" : "border-stone-800/80 hover:border-stone-700"
+                                }`}
+                              >
+                                <div className="space-y-0.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-bold text-stone-200 group-hover:text-amber-400 transition-colors">
+                                      {preset.name}
+                                    </span>
+                                    {isActive && <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />}
+                                  </div>
+                                  <span className="block text-[8px] text-stone-500 leading-tight">
+                                    {preset.description}
                                   </span>
-                                  {isActive && <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />}
                                 </div>
-                                <span className="block text-[8px] text-stone-500 leading-tight">
-                                  {preset.description}
-                                </span>
-                              </div>
 
-                              <div className="flex gap-1.5 mt-1 border-t border-stone-900/60 pt-1.5">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    loadPreset(preset, false);
-                                  }}
-                                  className="flex-1 text-[8px] font-mono font-bold bg-stone-900 hover:bg-stone-800 text-stone-300 py-1 px-1.5 rounded transition-all cursor-pointer border border-stone-800"
-                                >
-                                  Apply Active
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    loadPreset(preset, true);
-                                  }}
-                                  className="flex-1 text-[8px] font-mono font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 py-1 px-1.5 rounded transition-all cursor-pointer border border-amber-500/20"
-                                  title="Apply style to all slides in timeline"
-                                >
-                                  Apply to All
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Saved Custom Presets */}
-                    <div className="space-y-3 pt-2 border-t border-stone-800/55">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-bold text-stone-400 font-mono uppercase">Your Reusable Style Templates ({customPresets.length})</span>
-                        {customPresets.length === 0 && <span className="text-[8px] text-stone-600 font-mono italic">No custom presets saved yet</span>}
-                      </div>
-
-                      {customPresets.length > 0 && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[160px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-stone-800 scrollbar-track-transparent">
-                          {customPresets.map((preset) => (
-                            <div 
-                              key={preset.id}
-                              className="p-2.5 rounded-xl border border-stone-800/80 bg-stone-950/40 hover:bg-stone-950 hover:border-stone-700 transition-all flex flex-col justify-between gap-2"
-                            >
-                              <div className="space-y-0.5">
-                                <div className="flex items-center justify-between gap-1">
-                                  <span className="text-[11px] font-bold text-stone-200 truncate" title={preset.name}>
-                                    ⭐ {preset.name}
-                                  </span>
+                                <div className="flex gap-1.5 mt-1 border-t border-stone-900/60 pt-1.5">
                                   <button
-                                    onClick={() => deleteCustomPreset(preset.id)}
-                                    className="text-stone-500 hover:text-rose-400 p-0.5 transition-colors cursor-pointer"
-                                    title="Delete Preset"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      loadPreset(preset, false);
+                                    }}
+                                    className="flex-1 text-[8px] font-mono font-bold bg-stone-900 hover:bg-stone-800 text-stone-300 py-1 px-1.5 rounded transition-all cursor-pointer border border-stone-800"
                                   >
-                                    <Trash2 className="w-3 h-3" />
+                                    Apply Active
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      loadPreset(preset, true);
+                                    }}
+                                    className="flex-1 text-[8px] font-mono font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 py-1 px-1.5 rounded transition-all cursor-pointer border border-amber-500/20"
+                                    title="Apply style to all slides in timeline"
+                                  >
+                                    Apply to All
                                   </button>
                                 </div>
-                                <span className="block text-[8px] text-stone-500 font-mono">
-                                  {preset.description}
-                                </span>
                               </div>
-
-                              <div className="flex gap-1.5 mt-1 border-t border-stone-900/40 pt-1.5">
-                                <button
-                                  onClick={() => loadPreset(preset, false)}
-                                  className="flex-1 text-[8px] font-mono font-bold bg-stone-900 hover:bg-stone-800 text-stone-300 py-1 px-1.5 rounded transition-all cursor-pointer border border-stone-800"
-                                >
-                                  Apply Active
-                                </button>
-                                <button
-                                  onClick={() => loadPreset(preset, true)}
-                                  className="flex-1 text-[8px] font-mono font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 py-1 px-1.5 rounded transition-all cursor-pointer border border-amber-500/20"
-                                >
-                                  Apply to All
-                                </button>
-                              </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
-                      )}
-                    </div>
+                      </div>
 
-                  </div>
-                </div>
-              )}
+                      {/* Saved Custom Presets */}
+                      <div className="space-y-3 pt-2 border-t border-stone-800/55">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-stone-400 font-mono uppercase">Your Reusable Style Templates ({customPresets.length})</span>
+                          {customPresets.length === 0 && <span className="text-[8px] text-stone-600 font-mono italic">No custom presets saved yet</span>}
+                        </div>
+
+                        {customPresets.length > 0 && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[160px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-stone-800 scrollbar-track-transparent">
+                            {customPresets.map((preset) => (
+                              <div 
+                                key={preset.id}
+                                className="p-2.5 rounded-xl border border-stone-800/80 bg-stone-950/40 hover:bg-stone-950 hover:border-stone-700 transition-all flex flex-col justify-between gap-2"
+                              >
+                                <div className="space-y-0.5">
+                                  <div className="flex items-center justify-between gap-1">
+                                    <span className="text-[11px] font-bold text-stone-200 truncate" title={preset.name}>
+                                      ⭐ {preset.name}
+                                    </span>
+                                    <button
+                                      onClick={() => deleteCustomPreset(preset.id)}
+                                      className="text-stone-500 hover:text-rose-400 p-0.5 transition-colors cursor-pointer"
+                                      title="Delete Preset"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                  <span className="block text-[8px] text-stone-500 font-mono">
+                                    {preset.description}
+                                  </span>
+                                </div>
+
+                                <div className="flex gap-1.5 mt-1 border-t border-stone-900/40 pt-1.5">
+                                  <button
+                                    onClick={() => loadPreset(preset, false)}
+                                    className="flex-1 text-[8px] font-mono font-bold bg-stone-900 hover:bg-stone-800 text-stone-300 py-1 px-1.5 rounded transition-all cursor-pointer border border-stone-800"
+                                  >
+                                    Apply Active
+                                  </button>
+                                  <button
+                                    onClick={() => loadPreset(preset, true)}
+                                    className="flex-1 text-[8px] font-mono font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 py-1 px-1.5 rounded transition-all cursor-pointer border border-amber-500/20"
+                                  >
+                                    Apply to All
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               {/* Master Timeline & Slides Management List */}
               <div className="bg-stone-900 border border-stone-800 rounded-3xl p-6 shadow-2xl space-y-4">
