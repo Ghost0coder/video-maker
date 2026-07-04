@@ -1485,6 +1485,25 @@ export default function App() {
     setExportTimeRemaining(initialEstimatedSeconds);
 
     try {
+      setExportStatusText("Pre-loading slideshow images...");
+      const loadedImages: HTMLImageElement[] = [];
+      for (let i = 0; i < slides.length; i++) {
+        const activeSlide = slides[i];
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        await new Promise<void>((resolve) => {
+          img.onload = () => resolve();
+          img.onerror = () => {
+            console.warn(`Failed to preload image: ${activeSlide.url}`);
+            resolve();
+          };
+          img.src = activeSlide.url;
+        });
+        loadedImages.push(img);
+      }
+
+      setExportStatusText("Compiling frames...");
+
       const canvas = document.createElement("canvas");
       canvas.id = "cinematic-export-canvas";
       
@@ -1741,18 +1760,12 @@ export default function App() {
         }
 
         const activeSlide = slides[slideIndex];
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-        
-        await new Promise((resolve) => {
-          img.onload = resolve;
-          img.onerror = resolve;
-          img.src = activeSlide.url;
-        });
+        const img = loadedImages[slideIndex];
 
         const totalFrames = (activeSlide.duration || 3) * 30; // 30 FPS
 
         for (let f = 0; f < totalFrames; f++) {
+          const frameStart = performance.now();
           const ratio = f / totalFrames; // Current slide transition percentage (0 to 1)
 
           // Background deep cinematic wash
@@ -2221,8 +2234,10 @@ export default function App() {
           ctx.fillStyle = "rgba(245, 158, 11, 0.9)"; // amber-500
           ctx.fillRect(0, canvas.height - 6, canvas.width * ratio, 6);
 
-          // Delay simulation for frame rendering pipeline
-          await new Promise((r) => setTimeout(r, 1000 / 30));
+          // Delay simulation with dynamic pacing duration compensation
+          const frameDuration = performance.now() - frameStart;
+          const targetDelay = Math.max(1, (1000 / 30) - frameDuration);
+          await new Promise((r) => setTimeout(r, targetDelay));
 
           // Increment frame counter
           currentFrame++;
