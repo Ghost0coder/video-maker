@@ -34,7 +34,10 @@ import {
   CheckSquare,
   Square,
   Library,
-  Images
+  Images,
+  Film,
+  ArrowRight,
+  Home
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { CollegeMelodyGenerator } from "./utils";
@@ -560,6 +563,7 @@ export default function App() {
 
   // Project Management State
   const [projectName, setProjectName] = useState<string>("My Project");
+  const [currentView, setCurrentView] = useState<"home" | "editor">("home");
   const [availableProjects, setAvailableProjects] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("cinematic_projects_list") || "[]"); } catch { return []; }
   });
@@ -2637,6 +2641,72 @@ export default function App() {
       <div className="absolute bottom-10 right-1/4 w-96 h-96 bg-amber-600/5 rounded-full blur-[120px] pointer-events-none" />
 
       <div className="relative z-10 max-w-7xl mx-auto px-4 py-8 flex flex-col min-h-screen">
+        {currentView === "home" ? (
+          <div className="flex flex-col items-center justify-center flex-1 space-y-10 py-12">
+            <div className="text-center space-y-4">
+              <div className="mx-auto w-20 h-20 bg-gradient-to-tr from-amber-500 to-amber-600 rounded-2xl flex items-center justify-center text-stone-950 shadow-lg shadow-amber-500/20 mb-8">
+                <Video className="w-10 h-10" />
+              </div>
+              <h1 className="text-5xl font-extrabold text-stone-100 font-sans tracking-tight">Cinematic Studio</h1>
+              <p className="text-stone-400 font-mono text-sm max-w-md mx-auto">Create beautiful HTML5 canvas video slideshows with Web Audio integration.</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-3xl mt-12">
+              <button
+                onClick={() => {
+                  setSlides([]);
+                  setProjectName("New Project");
+                  setCurrentIndex(0);
+                  setVideoAspectRatio("16:9");
+                  setExportResolution("1080p");
+                  setCurrentView("editor");
+                }}
+                className="flex flex-col items-center justify-center gap-4 p-10 rounded-3xl border-2 border-dashed border-stone-800 bg-stone-900/40 hover:bg-stone-900 hover:border-amber-500/50 transition-all cursor-pointer group"
+              >
+                <div className="p-4 bg-stone-950 rounded-2xl group-hover:scale-110 transition-transform shadow-xl">
+                  <Plus className="w-8 h-8 text-amber-500" />
+                </div>
+                <div className="text-center">
+                  <h3 className="font-bold text-lg text-stone-200">Start New Project</h3>
+                  <p className="text-xs text-stone-500 mt-2 font-mono">Blank canvas timeline</p>
+                </div>
+              </button>
+
+              <div className="flex flex-col gap-4 bg-stone-900/40 p-6 rounded-3xl border border-stone-800 h-[280px]">
+                <div className="flex items-center gap-2 mb-1 pl-2 shrink-0">
+                  <Library className="w-4 h-4 text-stone-500" />
+                  <h3 className="font-mono text-xs uppercase tracking-widest text-stone-500">Recent Projects</h3>
+                </div>
+                {availableProjects.length === 0 ? (
+                  <div className="flex-1 flex flex-col items-center justify-center p-6 text-center border border-stone-800/50 rounded-2xl bg-stone-900/30 text-stone-500 text-sm italic">
+                    <Film className="w-8 h-8 opacity-20 mb-3" />
+                    No recent projects found
+                  </div>
+                ) : (
+                  <div className="flex-1 space-y-2 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-stone-800">
+                    {availableProjects.map(proj => (
+                      <button
+                        key={proj}
+                        onClick={() => {
+                          loadProject(proj);
+                          setCurrentView("editor");
+                        }}
+                        className="w-full flex items-center justify-between p-4 rounded-2xl border border-stone-800 bg-stone-950 hover:border-amber-500/30 transition-all cursor-pointer text-left group shrink-0"
+                      >
+                        <div className="flex items-center gap-3">
+                          <Film className="w-5 h-5 text-stone-500 group-hover:text-amber-500 transition-colors" />
+                          <span className="font-bold text-stone-300 group-hover:text-stone-100 truncate max-w-[150px]">{proj}</span>
+                        </div>
+                        <ArrowRight className="w-4 h-4 text-stone-600 group-hover:text-amber-500 transition-colors" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
         {/* Cinematic Header Block */}
         <header className="flex flex-col lg:flex-row items-center justify-between border-b border-stone-800 pb-6 mb-8 gap-6">
           <div className="flex items-center gap-4">
@@ -2655,6 +2725,18 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                saveProject();
+                setCurrentView("home");
+              }}
+              className="flex items-center gap-1 bg-stone-900 border border-stone-850 p-2 rounded-xl mr-2 text-stone-400 hover:text-amber-500 hover:border-amber-500/50 transition-all cursor-pointer h-[52px]"
+              title="Return to Home"
+            >
+              <Home className="w-5 h-5" />
+              <span className="text-[10px] font-mono hidden sm:inline-block px-1">HOME</span>
+            </button>
+
             {/* Project Management */}
             <div className="flex flex-col gap-1.5 bg-stone-900 border border-stone-850 p-2 rounded-xl mr-2">
               <div className="flex items-center gap-2">
@@ -5512,6 +5594,8 @@ export default function App() {
             </motion.div>
           )}
         </AnimatePresence>
+          </>
+        )}
       </div>
     </div>
   );
