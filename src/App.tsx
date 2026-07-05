@@ -31,6 +31,8 @@ import {
   Bookmark,
   Save,
   Check,
+  CheckSquare,
+  Square,
   Library,
   Images
 } from "lucide-react";
@@ -488,6 +490,69 @@ export default function App() {
     const initial = getInitialSlides();
     return initial.length > 0 ? initial[0].id : null;
   });
+
+  // Slide checking and batch selection state
+  const [checkedSlideIds, setCheckedSlideIds] = useState<Set<string>>(new Set());
+
+  const checkAllSlides = () => {
+    setCheckedSlideIds(new Set(slides.map(s => s.id)));
+  };
+
+  const uncheckAllSlides = () => {
+    setCheckedSlideIds(new Set());
+  };
+
+  const toggleSlideCheck = (slideId: string) => {
+    setCheckedSlideIds(prev => {
+      const next = new Set(prev);
+      if (next.has(slideId)) {
+        next.delete(slideId);
+      } else {
+        next.add(slideId);
+      }
+      return next;
+    });
+  };
+
+  const applySettingsToChecked = (fields: Array<keyof VideoSlide>) => {
+    const currentSlide = slides[currentIndex];
+    if (!currentSlide || checkedSlideIds.size === 0) return;
+
+    setSlides(prev =>
+      prev.map(slide => {
+        if (checkedSlideIds.has(slide.id)) {
+          const updatedSlide = { ...slide };
+          fields.forEach(field => {
+            if (currentSlide[field] !== undefined) {
+              // @ts-ignore
+              updatedSlide[field] = currentSlide[field];
+            }
+          });
+          return updatedSlide;
+        }
+        return slide;
+      })
+    );
+    setPresetFeedback(`Successfully applied ${fields.join(", ")} from Scene #${currentIndex + 1} to ${checkedSlideIds.size} checked frames!`);
+    setTimeout(() => setPresetFeedback(null), 3500);
+  };
+
+  const deleteCheckedSlides = () => {
+    if (checkedSlideIds.size === 0) return;
+    if (confirm(`Are you sure you want to delete ${checkedSlideIds.size} checked slides from your timeline?`)) {
+      const remainingSlides = slides.filter(s => !checkedSlideIds.has(s.id));
+      setSlides(remainingSlides);
+      setCheckedSlideIds(new Set());
+      if (currentIndex >= remainingSlides.length) {
+        setCurrentIndex(Math.max(0, remainingSlides.length - 1));
+      }
+      setPresetFeedback(`Deleted ${checkedSlideIds.size} slides.`);
+      setTimeout(() => setPresetFeedback(null), 3000);
+    }
+  };
+
+  // State to hold results of cinematic timeline quality audit
+  const [auditReports, setAuditReports] = useState<string[] | null>(null);
   
   // Video Global Aspect Ratio State
   const [videoAspectRatio, setVideoAspectRatio] = useState<"16:9" | "9:16" | "1:1" | "4:3">("16:9");
@@ -1468,7 +1533,7 @@ export default function App() {
     let activeAudioElement: HTMLAudioElement | null = null;
 
     // Estimate initial remaining time based on slides count and resolution
-    const totalFramesToRender = slides.reduce((acc, s) => acc + (s.duration || 3) * 30, 0);
+    const totalFramesToRender = slides.reduce((acc, s) => acc + Math.round((s.duration || 3) * 30), 0);
     let estimatedMsPerFrame = 35; // default 720p
     if (exportResolution === "1080p") {
       estimatedMsPerFrame = 48;
@@ -1762,7 +1827,7 @@ export default function App() {
         const activeSlide = slides[slideIndex];
         const img = loadedImages[slideIndex];
 
-        const totalFrames = (activeSlide.duration || 3) * 30; // 30 FPS
+        const totalFrames = Math.round((activeSlide.duration || 3) * 30); // 30 FPS
 
         for (let f = 0; f < totalFrames; f++) {
           const frameStart = performance.now();
@@ -2234,10 +2299,11 @@ export default function App() {
           ctx.fillStyle = "rgba(245, 158, 11, 0.9)"; // amber-500
           ctx.fillRect(0, canvas.height - 6, canvas.width * ratio, 6);
 
-          // Delay simulation with dynamic pacing duration compensation
-          const frameDuration = performance.now() - frameStart;
-          const targetDelay = Math.max(1, (1000 / 30) - frameDuration);
-          await new Promise((r) => setTimeout(r, targetDelay));
+          // Self-correcting timer delay calculation to prevent setTimeout drifts
+          const nextTargetTimeMs = ((currentFrame + 1) / 30) * 1000;
+          const currentElapsed = Date.now() - startTime;
+          const targetDelay = nextTargetTimeMs - currentElapsed;
+          await new Promise((r) => setTimeout(r, Math.max(1, targetDelay)));
 
           // Increment frame counter
           currentFrame++;
@@ -3374,6 +3440,22 @@ export default function App() {
                                   : "border-stone-800/80 bg-stone-950/40 hover:bg-stone-950/85 hover:border-stone-700"
                               }`}
                             >
+                              {/* Batch Selection Checkbox */}
+                              <div 
+                                onClick={(e) => {
+                                  e.stopPropagation(); // Avoid selecting slide for editing
+                                  toggleSlideCheck(slide.id);
+                                }}
+                                className="flex-shrink-0 cursor-pointer p-0.5 text-stone-600 hover:text-amber-500 transition-colors z-10"
+                                title="Toggle check frame for batch operations"
+                              >
+                                {checkedSlideIds.has(slide.id) ? (
+                                  <CheckSquare className="w-4 h-4 text-amber-500" />
+                                ) : (
+                                  <Square className="w-4 h-4 text-stone-700 hover:text-stone-500" />
+                                )}
+                              </div>
+
                               {/* Slide Scene Thumbnail with Number Overlay */}
                               <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 bg-stone-950 border border-stone-800 relative group-hover:scale-[1.03] transition-transform">
                                 <img
@@ -3691,15 +3773,141 @@ export default function App() {
               {/* Selected Slide Fine-Tuning Inspector Panel (Aspect Ratio, Fit Mode, Scale) */}
               {slides[currentIndex] && (
                 <div className="bg-stone-900 border border-stone-800 rounded-3xl p-6 shadow-2xl space-y-4">
-                  <div className="flex items-center gap-2 border-b border-stone-800 pb-3 mb-1">
-                    <Sliders className="w-4 h-4 text-amber-500" />
-                    <h3 className="text-xs font-mono font-bold tracking-wider uppercase text-stone-200">
-                      Frame #{currentIndex + 1} Inspector
-                    </h3>
-                    <span className="text-[10px] font-mono text-stone-400 ml-auto truncate max-w-[150px]">
-                      {slides[currentIndex].name}
-                    </span>
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-stone-800 pb-3 mb-1">
+                    <div className="flex items-center gap-2">
+                      <Sliders className="w-4 h-4 text-amber-500 animate-pulse" />
+                      <h3 className="text-xs font-mono font-bold tracking-wider uppercase text-stone-200">
+                        Frame #{currentIndex + 1} Inspector
+                      </h3>
+                      <span className="text-[10px] font-mono text-stone-500 truncate max-w-[120px]">
+                        ({slides[currentIndex].name})
+                      </span>
+                    </div>
+
+                    {/* Frame Selection and Check All Options */}
+                    <div className="flex items-center gap-3 self-end md:self-auto">
+                      <label className="flex items-center gap-1.5 cursor-pointer text-[10px] font-mono text-stone-300 hover:text-amber-400 transition-colors select-none">
+                        <input
+                          type="checkbox"
+                          checked={checkedSlideIds.has(slides[currentIndex].id)}
+                          onChange={() => toggleSlideCheck(slides[currentIndex].id)}
+                          className="rounded border-stone-700 bg-stone-950 text-amber-500 focus:ring-amber-500/30 w-3.5 h-3.5 accent-amber-500 cursor-pointer"
+                        />
+                        <span>Check Active Frame</span>
+                      </label>
+
+                      <div className="h-3 w-[1px] bg-stone-800" />
+
+                      <button
+                        type="button"
+                        onClick={checkedSlideIds.size === slides.length ? uncheckAllSlides : checkAllSlides}
+                        className="text-[10px] font-mono font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1 cursor-pointer bg-stone-950 px-2.5 py-1 rounded-lg border border-stone-800 hover:border-stone-700 transition-all shadow-sm"
+                      >
+                        <CheckSquare className="w-3.5 h-3.5" />
+                        <span>{checkedSlideIds.size === slides.length ? "Clear Checks" : "Check All Frames"}</span>
+                      </button>
+                    </div>
                   </div>
+
+                  {/* Bulk/Batch Actions Floating Control Banner */}
+                  {checkedSlideIds.size > 0 && (
+                    <motion.div 
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      className="bg-stone-950/90 border border-amber-500/20 rounded-2xl p-3.5 space-y-2.5 shadow-inner"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Check className="w-4 h-4 text-amber-500" />
+                          <span className="text-[10px] font-bold text-amber-400 font-mono uppercase tracking-wider">
+                            Batch Action Hub ({checkedSlideIds.size} checked frames)
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={uncheckAllSlides}
+                          className="text-[8px] font-mono uppercase text-stone-500 hover:text-stone-300 underline cursor-pointer"
+                        >
+                          Reset Checkbox List
+                        </button>
+                      </div>
+
+                      <p className="text-[10px] text-stone-400 leading-normal font-medium">
+                        Apply specific properties of the active <strong>Scene #{currentIndex + 1}</strong> (like its duration, zoom, filter, or transitions) to all checked frames instantly:
+                      </p>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => applySettingsToChecked(["transition"])}
+                          className="py-1.5 px-2 bg-stone-900 border border-stone-800 hover:border-amber-500/30 text-stone-300 hover:text-amber-400 rounded-lg text-[9px] font-bold font-mono transition-all cursor-pointer text-center"
+                          title="Apply current transition style to all checked frames"
+                        >
+                          Apply Transition ({slides[currentIndex].transition || "zoom"})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => applySettingsToChecked(["duration"])}
+                          className="py-1.5 px-2 bg-stone-900 border border-stone-800 hover:border-amber-500/30 text-stone-300 hover:text-amber-400 rounded-lg text-[9px] font-bold font-mono transition-all cursor-pointer text-center"
+                          title="Apply current duration to all checked frames"
+                        >
+                          Apply Duration ({slides[currentIndex].duration}s)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => applySettingsToChecked(["filter"])}
+                          className="py-1.5 px-2 bg-stone-900 border border-stone-800 hover:border-amber-500/30 text-stone-300 hover:text-amber-400 rounded-lg text-[9px] font-bold font-mono transition-all cursor-pointer text-center"
+                          title="Apply current color filter to all checked frames"
+                        >
+                          Apply Filter ({slides[currentIndex].filter || "none"})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => applySettingsToChecked(["fitMode", "zoomMultiplier"])}
+                          className="py-1.5 px-2 bg-stone-900 border border-stone-800 hover:border-amber-500/30 text-stone-300 hover:text-amber-400 rounded-lg text-[9px] font-bold font-mono transition-all cursor-pointer text-center"
+                          title="Apply current aspect fit mode and zoom ratio to all checked frames"
+                        >
+                          Apply Fit Mode & Zoom
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => applySettingsToChecked(["volume"])}
+                          className="py-1.5 px-2 bg-stone-900 border border-stone-800 hover:border-amber-500/30 text-stone-300 hover:text-amber-400 rounded-lg text-[9px] font-bold font-mono transition-all cursor-pointer text-center"
+                          title="Apply current frame audio volume to all checked frames"
+                        >
+                          Apply Frame Volume
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => applySettingsToChecked([
+                            "motionAngle", "motionSpeed", "anchorX", "anchorY", "maskType", "maskRadius", "maskFeather", "cameraRoll", "parallaxEnabled", "parallaxStrength", "vfxType", "vfxIntensity"
+                          ])}
+                          className="py-1.5 px-2 bg-stone-900 border border-stone-800 hover:border-amber-500/30 text-stone-300 hover:text-amber-400 rounded-lg text-[9px] font-bold font-mono transition-all cursor-pointer text-center"
+                          title="Apply current advanced camera motion & VFX effects to all checked frames"
+                        >
+                          Apply Camera & VFX
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => applySettingsToChecked([
+                            "transition", "duration", "filter", "fitMode", "zoomMultiplier", "volume", "motionAngle", "motionSpeed", "anchorX", "anchorY", "maskType", "maskRadius", "maskFeather", "cameraRoll", "parallaxEnabled", "parallaxStrength", "vfxType", "vfxIntensity"
+                          ])}
+                          className="py-1.5 px-2 bg-amber-500/10 border border-amber-500/20 hover:border-amber-500/50 text-amber-400 hover:text-white rounded-lg text-[9px] font-extrabold font-mono transition-all cursor-pointer text-center"
+                          title="Apply ALL settings of this frame to all checked frames"
+                        >
+                          Apply All Settings
+                        </button>
+                        <button
+                          type="button"
+                          onClick={deleteCheckedSlides}
+                          className="py-1.5 px-2 bg-rose-500/10 border border-rose-500/20 hover:border-rose-500 hover:text-white text-rose-400 rounded-lg text-[9px] font-bold font-mono transition-all cursor-pointer text-center"
+                          title="Delete all checked frames from timeline"
+                        >
+                          Delete Checked ({checkedSlideIds.size})
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {/* Thumbnail Preview in inspector with transition preview */}
@@ -4419,6 +4627,94 @@ export default function App() {
                         ✨ Pro Tip: The Lens Flare effect will automatically align to your chosen **Anchor Focus Pin** on the slide, creating gorgeous focal perspective. Light Leak and VHS effects add rich nostalgia to historic memories.
                       </p>
                     </div>
+
+                    {/* Option to Check All Frames for Quality Issues / Audit Warnings */}
+                    <div className="border-t border-stone-800/60 pt-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-mono uppercase text-stone-400 font-bold flex items-center gap-1.5">
+                          <Eye className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
+                          Cinematic Quality Auditor (Check All Frames)
+                        </label>
+                        <span className="text-[8px] font-mono text-stone-500 bg-stone-950 px-2 py-0.5 rounded border border-stone-850">
+                          Scan Whole Timeline
+                        </span>
+                      </div>
+
+                      <div className="bg-stone-950 p-4 rounded-2xl border border-stone-850 space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <span className="text-[10px] text-stone-400 font-mono leading-tight">
+                            Scans visual transitions, colors, aspect ratios, durations & subtitles.
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const reports: string[] = [];
+                              slides.forEach((slide, idx) => {
+                                const prefix = `Scene #${idx + 1} (${slide.name || "Untitled"}):`;
+                                if (!slide.caption || slide.caption.trim() === "") {
+                                  reports.push(`${prefix} Subtitle caption text is missing or blank.`);
+                                }
+                                if (slide.duration < 3) {
+                                  reports.push(`${prefix} Fast play duration (${slide.duration}s); might feel rushed.`);
+                                }
+                                if (slide.duration > 8) {
+                                  reports.push(`${prefix} Long static play duration (${slide.duration}s); consider adding Parallax.`);
+                                }
+                                if (slide.filter === "none" || !slide.filter) {
+                                  reports.push(`${prefix} Normal raw photo colors. Try Vintage, Sunny, or Cool filters.`);
+                                }
+                                if (!slide.transition || slide.transition === "fadeOnly") {
+                                  reports.push(`${prefix} Basic transition fade. Try Zoom, Pan, or Tilt effect.`);
+                                }
+                              });
+                              setAuditReports(reports);
+                            }}
+                            className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold font-mono text-[9px] rounded-lg transition-colors cursor-pointer whitespace-nowrap self-start sm:self-auto"
+                          >
+                            Check All Frames
+                          </button>
+                        </div>
+
+                        {/* Display Audit Reports */}
+                        {auditReports && auditReports.length > 0 ? (
+                          <div className="space-y-1.5 max-h-[160px] overflow-y-auto pr-1">
+                            <div className="flex items-center justify-between text-[9px] font-mono text-amber-500 font-bold border-b border-stone-800 pb-1">
+                              <span>Found {auditReports.length} Suggestions:</span>
+                              <button
+                                type="button"
+                                onClick={() => setAuditReports(null)}
+                                className="text-stone-500 hover:text-stone-300 underline cursor-pointer"
+                              >
+                                Clear Report
+                              </button>
+                            </div>
+                            {auditReports.map((report, rIdx) => {
+                              const isWarning = report.includes("missing") || report.includes("Fast");
+                              return (
+                                <div 
+                                  key={rIdx} 
+                                  className={`text-[10px] font-mono p-1.5 rounded-lg border leading-relaxed flex items-start gap-1.5 ${
+                                    isWarning 
+                                      ? "bg-rose-500/5 border-rose-500/20 text-rose-300" 
+                                      : "bg-amber-500/5 border-amber-500/10 text-stone-300"
+                                  }`}
+                                >
+                                  <span className="mt-0.5 text-[8px] flex-shrink-0">
+                                    {isWarning ? "⚠️" : "💡"}
+                                  </span>
+                                  <span>{report}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : auditReports && auditReports.length === 0 ? (
+                          <div className="text-[10px] text-emerald-400 font-mono text-center py-2 bg-emerald-500/5 rounded-xl border border-emerald-500/10 flex items-center justify-center gap-1.5">
+                            <span>✨</span>
+                            <span>No suggestions! All timeline frames are fully optimized for cinematic export.</span>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -4706,6 +5002,19 @@ export default function App() {
                           : "bg-stone-950/60 border-stone-800/80 hover:border-stone-700"
                       }`}
                     >
+                      {/* Checkbox for batch checking */}
+                      <div 
+                        onClick={() => toggleSlideCheck(slide.id)}
+                        className="flex-shrink-0 cursor-pointer p-0.5 text-stone-600 hover:text-amber-500 transition-colors"
+                        title="Toggle check frame for batch operations"
+                      >
+                        {checkedSlideIds.has(slide.id) ? (
+                          <CheckSquare className="w-4 h-4 text-amber-500 animate-pulse" />
+                        ) : (
+                          <Square className="w-4 h-4 text-stone-700 hover:text-stone-500" />
+                        )}
+                      </div>
+
                       {/* Photo Thumbnail */}
                       <button
                         onClick={() => {
