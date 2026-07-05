@@ -390,6 +390,7 @@ export default function App() {
   // Timeline Slides State
   const [slides, setSlides] = useState<VideoSlide[]>(getInitialSlides);
   const [currentIndex, setCurrentIndex] = useState<number>(0);
+  const [inspectorTab, setInspectorTab] = useState<"media" | "text" | "vfx">("media");
 
   // Asset Gallery States
   const [isAssetGalleryOpen, setIsAssetGalleryOpen] = useState<boolean>(false);
@@ -4066,6 +4067,27 @@ export default function App() {
                     </div>
                   </div>
 
+                  {/* Inspector Tabs */}
+                  <div className="flex bg-stone-950 p-1.5 rounded-xl border border-stone-800 gap-1.5 overflow-x-auto w-full">
+                    {[
+                      { id: "media", label: "Media & Basic" },
+                      { id: "text", label: "Text & Subtitles" },
+                      { id: "vfx", label: "Animation & VFX" }
+                    ].map(tab => (
+                      <button
+                        key={tab.id}
+                        onClick={() => setInspectorTab(tab.id as any)}
+                        className={`px-4 py-2 text-xs font-mono rounded-lg transition-all flex-1 whitespace-nowrap cursor-pointer ${
+                          inspectorTab === tab.id
+                            ? "bg-amber-500/10 text-amber-500 font-bold border border-amber-500/20"
+                            : "text-stone-400 hover:text-stone-200 hover:bg-stone-900 border border-transparent"
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+
                   {/* Bulk/Batch Actions Floating Control Banner */}
                   {checkedSlideIds.size > 0 && (
                     <motion.div 
@@ -4166,6 +4188,8 @@ export default function App() {
                     </motion.div>
                   )}
 
+                  {inspectorTab === "media" && (
+                    <>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {/* Thumbnail Preview in inspector with transition preview */}
                     <div className="relative aspect-video bg-stone-950 rounded-xl overflow-hidden border border-stone-800 flex items-center justify-center group">
@@ -4402,7 +4426,11 @@ export default function App() {
                       ))}
                     </div>
                   </div>
+                  </>
+                  )}
 
+                  {inspectorTab === "text" && (
+                  <>
                    <div className="space-y-2 border-t border-stone-800/60 pt-4">
                     <div className="flex items-center justify-between">
                       <label className="text-[10px] font-mono uppercase text-stone-400 font-bold flex items-center gap-1.5">
@@ -4595,7 +4623,11 @@ export default function App() {
                       Disable subtitle visibility to completely hide captions on both live preview and exported videos, or use "Clear" to reset.
                     </p>
                   </div>
+                  </>
+                  )}
 
+                  {inspectorTab === "vfx" && (
+                  <>
                   {/* Advanced Camera Motion & VFX Studio */}
                   <div className="border-t border-stone-800/60 pt-4 space-y-4">
                     <div className="flex items-center justify-between">
@@ -5089,6 +5121,8 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+                  </>
+                  )}
                 </div>
               )}
 

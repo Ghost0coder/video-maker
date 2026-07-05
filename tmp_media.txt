@@ -1,0 +1,215 @@
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Thumbnail Preview in inspector with transition preview */}
+                    <div className="relative aspect-video bg-stone-950 rounded-xl overflow-hidden border border-stone-800 flex items-center justify-center group">
+                      <AnimatePresence mode="wait">
+                        <motion.img
+                          key={`${currentIndex}_${slides[currentIndex].transition}_${previewToggle}`}
+                          src={slides[currentIndex].url}
+                          alt="Inspector Thumbnail"
+                          className={`w-full h-full ${
+                            slides[currentIndex].fitMode === "contain" ? "object-contain" : "object-cover"
+                          }`}
+                          style={{ filter: getFilterCss(slides[currentIndex].filter) }}
+                          referrerPolicy="no-referrer"
+                          {...getMotionAnimation(slides[currentIndex], 1.2)}
+                        />
+                      </AnimatePresence>
+                      
+                      <span className="absolute bottom-2 left-2 text-[8px] font-mono bg-stone-900/95 text-stone-400 px-1.5 py-0.5 rounded border border-stone-800 uppercase pointer-events-none z-10">
+                        {slides[currentIndex].fitMode === "contain" ? "Contain" : "Cover"}
+                      </span>
+
+                      {/* Floating Active Transition Style Badge */}
+                      <span className="absolute top-2 left-2 text-[8px] font-mono bg-amber-500/90 text-stone-950 px-2 py-0.5 rounded-full font-bold uppercase shadow-sm z-10 pointer-events-none">
+                        Effect: {slides[currentIndex].transition || "zoom"}
+                      </span>
+
+                      {/* Small floating replay preview overlay */}
+                      <button
+                        onClick={() => setPreviewToggle(prev => prev + 1)}
+                        className="absolute inset-0 bg-black/55 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-1.5 text-white text-[10px] font-bold font-mono transition-all duration-200 cursor-pointer z-20"
+                        title="Replay Transition Animation Preview"
+                      >
+                        <span className="p-2 bg-amber-500 hover:scale-110 active:scale-95 text-stone-950 rounded-full shadow-lg transition-transform">
+                          <Play className="w-3.5 h-3.5 fill-stone-950" />
+                        </span>
+                        <span className="bg-stone-950/90 px-2 py-0.5 rounded-lg border border-stone-800 tracking-wider">REPLAY PREVIEW</span>
+                      </button>
+                    </div>
+
+                    {/* Quick controls */}
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-[10px] font-mono uppercase text-stone-400 mb-1">
+                          Fit Mode (Aspect Control)
+                        </label>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <button
+                            onClick={() => {
+                              const updated = [...slides];
+                              updated[currentIndex].fitMode = "cover";
+                              setSlides(updated);
+                            }}
+                            className={`py-1.5 rounded-lg text-center text-[9px] font-bold border transition-all cursor-pointer ${
+                              (slides[currentIndex].fitMode || "cover") === "cover"
+                                ? "bg-amber-500/10 border-amber-500/40 text-amber-400 font-extrabold"
+                                : "bg-stone-950 border-stone-800/80 text-stone-400 hover:text-stone-300"
+                            }`}
+                          >
+                            Fill Frame (Cover)
+                          </button>
+                          <button
+                            onClick={() => {
+                              const updated = [...slides];
+                              updated[currentIndex].fitMode = "contain";
+                              setSlides(updated);
+                            }}
+                            className={`py-1.5 rounded-lg text-center text-[9px] font-bold border transition-all cursor-pointer ${
+                              slides[currentIndex].fitMode === "contain"
+                                ? "bg-amber-500/10 border-amber-500/40 text-amber-400 font-extrabold"
+                                : "bg-stone-950 border-stone-800/80 text-stone-400 hover:text-stone-300"
+                            }`}
+                          >
+                            Fit Frame (Contain)
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between items-center mb-1">
+                          <label className="text-[10px] font-mono uppercase text-stone-400">
+                            Custom Zoom Ratio
+                          </label>
+                          <span className="text-[10px] font-mono font-bold text-amber-500">
+                            {slides[currentIndex].zoomMultiplier ? `${slides[currentIndex].zoomMultiplier.toFixed(1)}x` : "1.0x"}
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0.6"
+                          max="2.0"
+                          step="0.1"
+                          value={slides[currentIndex].zoomMultiplier || 1.0}
+                          onChange={(e) => {
+                            const updated = [...slides];
+                            updated[currentIndex].zoomMultiplier = Number(e.target.value);
+                            setSlides(updated);
+                          }}
+                          className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-950 rounded-lg appearance-none"
+                        />
+                        <div className="flex justify-between text-[8px] font-mono text-stone-500 mt-1">
+                          <span>0.6x (Zoom Out)</span>
+                          <span>1.0x (Original)</span>
+                          <span>2.0x (Zoom In)</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between items-center mb-1">
+                          <label className="text-[10px] font-mono uppercase text-stone-400">
+                            Frame Audio Volume
+                          </label>
+                          <span className="text-[10px] font-mono font-bold text-amber-500 font-mono">
+                            {slides[currentIndex].volume !== undefined ? slides[currentIndex].volume : 100}%
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          step="5"
+                          value={slides[currentIndex].volume !== undefined ? slides[currentIndex].volume : 100}
+                          onChange={(e) => {
+                            const updated = [...slides];
+                            updated[currentIndex].volume = Number(e.target.value);
+                            setSlides(updated);
+                          }}
+                          className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-950 rounded-lg appearance-none"
+                        />
+                        <div className="flex justify-between text-[8px] font-mono text-stone-500 mt-1">
+                          <span>0% (Mute)</span>
+                          <span>50%</span>
+                          <span>100% (Full)</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Subtitle caption input & settings */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                    <div>
+                      <label className="block text-[10px] font-mono uppercase text-stone-400 mb-1.5">
+                        Transition Animation Style
+                      </label>
+                      <select
+                        value={slides[currentIndex].transition}
+                        onChange={(e) => {
+                          const updated = [...slides];
+                          updated[currentIndex].transition = e.target.value as any;
+                          setSlides(updated);
+                        }}
+                        className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-xs text-stone-200 focus:border-amber-500/50 focus:outline-none cursor-pointer"
+                      >
+                        <option value="zoom">Zoom In Effect</option>
+                        <option value="zoomOut">Zoom Out Effect</option>
+                        <option value="panLeft">Pan Left Movement</option>
+                        <option value="panRight">Pan Right Movement</option>
+                        <option value="tiltUp">Tilt Up Movement</option>
+                        <option value="tiltDown">Tilt Down Movement</option>
+                        <option value="slideUp">Slide Up Entry</option>
+                        <option value="slideLeft">Slide Left Entry</option>
+                        <option value="slideRight">Slide Right Entry</option>
+                        <option value="blurFade">Cinematic Blur Dissolve</option>
+                        <option value="retroSpin">Retro Spin & Zoom</option>
+                        <option value="vortex">Vortex Spin Dissolve</option>
+                        <option value="glitch">Digital Glitch Jitter</option>
+                        <option value="fadeOnly">Clean Cross-Fade Only</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-mono uppercase text-stone-400 mb-1.5">
+                        Duration in Seconds
+                      </label>
+                      <div className="flex gap-1 bg-stone-950 p-0.5 rounded-xl border border-stone-800">
+                        {[2, 3, 4, 5, 8].map((sec) => (
+                          <button
+                            key={sec}
+                            onClick={() => {
+                              const updated = [...slides];
+                              updated[currentIndex].duration = sec;
+                              setSlides(updated);
+                            }}
+                            className={`flex-1 py-1.5 rounded-lg text-center text-xs font-mono font-bold transition-all cursor-pointer ${
+                              slides[currentIndex].duration === sec
+                                ? "bg-amber-500 text-stone-950"
+                                : "text-stone-400 hover:text-stone-200"
+                            }`}
+                          >
+                            {sec}s
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Artistic Color Filter */}
+                  <div className="border-t border-stone-800/60 pt-4 space-y-2">
+                    <label className="block text-[10px] font-mono uppercase text-stone-400 font-bold flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                      Artistic Color Filter
+                    </label>
+                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {[
+                        { id: "none", name: "Normal", desc: "No Filter" },
+                        { id: "grayscale", name: "Grayscale", desc: "Classic Noir" },
+                        { id: "sepia", name: "Sepia", desc: "Retro Warm" },
+                        { id: "vibrant", name: "Vibrant", desc: "Rich Saturate" },
+                        { id: "vintage", name: "Vintage", desc: "Analog Film" },
+                        { id: "invert", name: "X-Ray", desc: "Invert Art" },
+                        { id: "warm", name: "Sunny", desc: "Golden Hour" },
+                        { id: "cool", name: "Nordic", desc: "Glacier Cool" },
+                        { id: "dramatic", name: "Dramatic", desc: "Cinematic Low-Sat" },
+                        { id: "cyberpunk", name: "Cyberpunk", desc: "Neon Pink/Blue" },
+                        { id: "technicolor", name: "Technicolor", desc: "Retro Hollywood" },
+                        { id: "monochrome", name: "Monochrome", desc: "High Contrast B&W" },
