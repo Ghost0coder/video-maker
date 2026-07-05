@@ -46,6 +46,10 @@ interface VideoSlide {
   duration: number; // in seconds
   transition: "zoom" | "panLeft" | "panRight" | "slideUp" | "slideLeft" | "slideRight" | "blurFade" | "retroSpin" | "zoomOut" | "tiltUp" | "tiltDown" | "vortex" | "glitch" | "fadeOnly";
   caption: string;
+  captionFont?: "Inter" | "Playfair Display" | "JetBrains Mono" | "Space Grotesk" | "Comic Sans MS";
+  captionColor?: string;
+  captionSize?: "small" | "medium" | "large" | "xlarge";
+  captionAnimation?: "fade" | "slideUp" | "typewriter" | "bounce" | "scale" | "none";
   fitMode?: "cover" | "contain";
   zoomMultiplier?: number; // scale adjustment from 0.6 to 2.0
   showSubtitle?: boolean;
@@ -553,6 +557,50 @@ export default function App() {
 
   // State to hold results of cinematic timeline quality audit
   const [auditReports, setAuditReports] = useState<string[] | null>(null);
+
+  // Project Management State
+  const [projectName, setProjectName] = useState<string>("My Project");
+  const [availableProjects, setAvailableProjects] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("cinematic_projects_list") || "[]"); } catch { return []; }
+  });
+
+  const saveProject = () => {
+    const projectData = {
+      slides,
+      projectName,
+      videoAspectRatio,
+      exportResolution,
+      activeSoundtrackType,
+      globalShowSubtitles
+    };
+    localStorage.setItem(`cinematic_project_${projectName}`, JSON.stringify(projectData));
+    if (!availableProjects.includes(projectName)) {
+      const updated = [...availableProjects, projectName];
+      setAvailableProjects(updated);
+      localStorage.setItem("cinematic_projects_list", JSON.stringify(updated));
+    }
+    setPresetFeedback(`Project "${projectName}" saved successfully.`);
+    setTimeout(() => setPresetFeedback(null), 3000);
+  };
+
+  const loadProject = (name: string) => {
+    const data = localStorage.getItem(`cinematic_project_${name}`);
+    if (data) {
+      try {
+        const parsed = JSON.parse(data);
+        setSlides(parsed.slides || []);
+        setProjectName(parsed.projectName || name);
+        setVideoAspectRatio(parsed.videoAspectRatio || "16:9");
+        setExportResolution(parsed.exportResolution || "1080p");
+        if (parsed.activeSoundtrackType) setActiveSoundtrackType(parsed.activeSoundtrackType);
+        if (parsed.globalShowSubtitles !== undefined) setGlobalShowSubtitles(parsed.globalShowSubtitles);
+        setPresetFeedback(`Loaded project "${name}".`);
+        setTimeout(() => setPresetFeedback(null), 3000);
+      } catch (e) {
+        console.error("Failed to load project", e);
+      }
+    }
+  };
   
   // Video Global Aspect Ratio State
   const [videoAspectRatio, setVideoAspectRatio] = useState<"16:9" | "9:16" | "1:1" | "4:3">("16:9");
@@ -2282,17 +2330,80 @@ export default function App() {
 
           // Draw beautiful movie subtitle captions at bottom
           if (globalShowSubtitles && activeSlide.showSubtitle !== false && activeSlide.caption) {
-            ctx.fillStyle = "rgba(9, 5, 4, 0.85)";
+            // Options
+            const captionColor = activeSlide.captionColor || "#ffffff";
+            const captionFontFamily = activeSlide.captionFont || "Inter";
+            const captionSizeSetting = activeSlide.captionSize || "medium";
+            
+            let baseFontSize = 26;
+            let panelHeight = 75;
+            let textYOffset = 64;
+            if (captionSizeSetting === "small") { baseFontSize = 18; panelHeight = 55; textYOffset = 70; }
+            if (captionSizeSetting === "large") { baseFontSize = 36; panelHeight = 90; textYOffset = 58; }
+            if (captionSizeSetting === "xlarge") { baseFontSize = 52; panelHeight = 120; textYOffset = 48; }
+            
+            const captionAnim = activeSlide.captionAnimation || "fade";
+
+            // Calculate text animation
+            let textAlpha = 1;
+            let textY = canvas.height - textYOffset;
+            let textScale = 1;
+            
+            if (captionAnim === "fade") {
+              if (ratio < 0.1) textAlpha = ratio / 0.1;
+              else if (ratio > 0.9) textAlpha = (1 - ratio) / 0.1;
+            } else if (captionAnim === "slideUp") {
+              if (ratio < 0.1) {
+                 textAlpha = ratio / 0.1;
+                 textY = canvas.height - textYOffset + (1 - ratio / 0.1) * 30;
+              } else if (ratio > 0.9) {
+                 textAlpha = (1 - ratio) / 0.1;
+                 textY = canvas.height - textYOffset - ((ratio - 0.9) / 0.1) * 30;
+              }
+            } else if (captionAnim === "scale") {
+               if (ratio < 0.1) {
+                 textAlpha = ratio / 0.1;
+                 textScale = 0.5 + (ratio / 0.1) * 0.5;
+               } else if (ratio > 0.9) {
+                 textAlpha = (1 - ratio) / 0.1;
+                 textScale = 1 + ((ratio - 0.9) / 0.1) * 0.5;
+               }
+            } else if (captionAnim === "bounce") {
+               if (ratio < 0.1) {
+                 textAlpha = ratio / 0.1;
+                 const p = ratio / 0.1;
+                 textY = canvas.height - textYOffset - Math.abs(Math.sin(p * Math.PI * 2)) * 15;
+               } else if (ratio > 0.9) {
+                 textAlpha = (1 - ratio) / 0.1;
+               }
+            }
+
+            let textToDraw = activeSlide.caption;
+            if (captionAnim === "typewriter") {
+               const charRatio = Math.min(1, ratio / 0.4); // Reveal fully by 40%
+               const charCount = Math.floor(charRatio * activeSlide.caption.length);
+               textToDraw = activeSlide.caption.substring(0, charCount);
+            }
+
+            ctx.save();
+            ctx.globalAlpha = Math.max(0, Math.min(1, textAlpha));
+            
             // Rounded backing panel
+            ctx.fillStyle = "rgba(9, 5, 4, 0.85)";
             ctx.beginPath();
-            ctx.roundRect(140, canvas.height - 110, canvas.width - 280, 75, 16);
+            ctx.roundRect(140, canvas.height - (panelHeight + 35), canvas.width - 280, panelHeight, 16);
             ctx.fill();
 
             // Caption text
-            ctx.fillStyle = "#ffffff";
-            ctx.font = "bold 26px 'Inter', sans-serif";
+            ctx.fillStyle = captionColor;
+            ctx.font = `bold ${baseFontSize}px '${captionFontFamily}', sans-serif`;
             ctx.textAlign = "center";
-            ctx.fillText(activeSlide.caption, canvas.width / 2, canvas.height - 64);
+            
+            ctx.translate(canvas.width / 2, textY);
+            ctx.scale(textScale, textScale);
+            ctx.fillText(textToDraw, 0, 0);
+            
+            ctx.restore();
           }
 
           // Frame timeline progress track rendering
@@ -2544,6 +2655,44 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Project Management */}
+            <div className="flex flex-col gap-1.5 bg-stone-900 border border-stone-850 p-2 rounded-xl mr-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={projectName}
+                  onChange={(e) => setProjectName(e.target.value)}
+                  className="bg-stone-950 border border-stone-800 rounded-lg px-2 py-1 text-xs text-stone-200 focus:border-amber-500/50 focus:outline-none w-32"
+                  placeholder="Project Name"
+                />
+                <button
+                  onClick={saveProject}
+                  className="p-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer bg-stone-800 hover:bg-amber-500 hover:text-stone-950 text-stone-300"
+                  title="Save Project"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              {availableProjects.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <select
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        loadProject(e.target.value);
+                        e.target.value = "";
+                      }
+                    }}
+                    className="bg-stone-950 border border-stone-800 rounded-lg px-2 py-1 text-[10px] text-stone-400 focus:border-amber-500/50 focus:outline-none w-full cursor-pointer"
+                  >
+                    <option value="">Load Project...</option>
+                    {availableProjects.map(proj => (
+                      <option key={proj} value={proj}>{proj}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
             {/* Undo / Redo controls */}
             <div className="flex items-center gap-1 bg-stone-900 border border-stone-850 p-1.5 rounded-xl mr-1">
               <button
@@ -3776,10 +3925,36 @@ export default function App() {
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-stone-800 pb-3 mb-1">
                     <div className="flex items-center gap-2">
                       <Sliders className="w-4 h-4 text-amber-500 animate-pulse" />
-                      <h3 className="text-xs font-mono font-bold tracking-wider uppercase text-stone-200">
-                        Frame #{currentIndex + 1} Inspector
-                      </h3>
-                      <span className="text-[10px] font-mono text-stone-500 truncate max-w-[120px]">
+                      <div className="flex items-center gap-1.5 border border-stone-800 bg-stone-950 rounded-lg p-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
+                          className="px-2 py-1 text-stone-400 hover:text-amber-500 hover:bg-stone-900 rounded cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          disabled={currentIndex === 0}
+                        >
+                          &lt;
+                        </button>
+                        <select
+                          value={currentIndex}
+                          onChange={e => setCurrentIndex(Number(e.target.value))}
+                          className="bg-transparent text-xs font-mono font-bold tracking-wider uppercase text-stone-200 outline-none cursor-pointer appearance-none text-center px-1"
+                        >
+                          {slides.map((s, i) => (
+                            <option key={s.id} value={i} className="bg-stone-900">
+                              Frame #{i + 1}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => setCurrentIndex(Math.min(slides.length - 1, currentIndex + 1))}
+                          className="px-2 py-1 text-stone-400 hover:text-amber-500 hover:bg-stone-900 rounded cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          disabled={currentIndex === slides.length - 1}
+                        >
+                          &gt;
+                        </button>
+                      </div>
+                      <span className="text-[10px] font-mono text-stone-500 truncate max-w-[120px] hidden sm:inline-block ml-1">
                         ({slides[currentIndex].name})
                       </span>
                     </div>
@@ -4218,6 +4393,92 @@ export default function App() {
                         </button>
                       )}
                     </div>
+                    
+                    {/* Advanced Text Typography & Style Options */}
+                    {slides[currentIndex].caption && slides[currentIndex].showSubtitle !== false && (
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-stone-950 p-3 rounded-xl border border-stone-800/60 mt-3">
+                        <div className="space-y-1.5">
+                          <label className="text-[9px] font-mono text-stone-500 uppercase">Font</label>
+                          <select
+                            value={slides[currentIndex].captionFont || "Inter"}
+                            onChange={e => {
+                              const updated = [...slides];
+                              updated[currentIndex].captionFont = e.target.value as any;
+                              setSlides(updated);
+                            }}
+                            className="w-full bg-stone-900 border border-stone-800 rounded px-2 py-1 text-[10px] text-stone-300 focus:border-amber-500/50 focus:outline-none cursor-pointer"
+                          >
+                            <option value="Inter">Inter (Sans)</option>
+                            <option value="Playfair Display">Playfair (Serif)</option>
+                            <option value="JetBrains Mono">JetBrains (Mono)</option>
+                            <option value="Space Grotesk">Space Grotesk</option>
+                            <option value="Comic Sans MS">Comic Sans</option>
+                          </select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[9px] font-mono text-stone-500 uppercase">Color</label>
+                          <div className="flex gap-1.5 h-[22px]">
+                            <input
+                              type="color"
+                              value={slides[currentIndex].captionColor || "#ffffff"}
+                              onChange={e => {
+                                const updated = [...slides];
+                                updated[currentIndex].captionColor = e.target.value;
+                                setSlides(updated);
+                              }}
+                              className="w-8 h-full rounded bg-stone-900 border border-stone-800 cursor-pointer p-0"
+                            />
+                            <input
+                              type="text"
+                              value={slides[currentIndex].captionColor || "#ffffff"}
+                              onChange={e => {
+                                const updated = [...slides];
+                                updated[currentIndex].captionColor = e.target.value;
+                                setSlides(updated);
+                              }}
+                              className="flex-1 w-full bg-stone-900 border border-stone-800 rounded px-2 text-[10px] text-stone-300 focus:border-amber-500/50 focus:outline-none font-mono"
+                            />
+                          </div>
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[9px] font-mono text-stone-500 uppercase">Size</label>
+                          <select
+                            value={slides[currentIndex].captionSize || "medium"}
+                            onChange={e => {
+                              const updated = [...slides];
+                              updated[currentIndex].captionSize = e.target.value as any;
+                              setSlides(updated);
+                            }}
+                            className="w-full bg-stone-900 border border-stone-800 rounded px-2 py-1 text-[10px] text-stone-300 focus:border-amber-500/50 focus:outline-none cursor-pointer"
+                          >
+                            <option value="small">Small</option>
+                            <option value="medium">Medium</option>
+                            <option value="large">Large</option>
+                            <option value="xlarge">Extra Large</option>
+                          </select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[9px] font-mono text-stone-500 uppercase">Animation</label>
+                          <select
+                            value={slides[currentIndex].captionAnimation || "fade"}
+                            onChange={e => {
+                              const updated = [...slides];
+                              updated[currentIndex].captionAnimation = e.target.value as any;
+                              setSlides(updated);
+                            }}
+                            className="w-full bg-stone-900 border border-stone-800 rounded px-2 py-1 text-[10px] text-stone-300 focus:border-amber-500/50 focus:outline-none cursor-pointer"
+                          >
+                            <option value="fade">Fade In/Out</option>
+                            <option value="slideUp">Slide Up</option>
+                            <option value="typewriter">Typewriter</option>
+                            <option value="scale">Pop/Scale</option>
+                            <option value="bounce">Bounce</option>
+                            <option value="none">None (Static)</option>
+                          </select>
+                        </div>
+                      </div>
+                    )}
+
                     <p className="text-[9px] text-stone-500 leading-tight">
                       Disable subtitle visibility to completely hide captions on both live preview and exported videos, or use "Clear" to reset.
                     </p>
