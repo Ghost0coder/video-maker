@@ -37,7 +37,8 @@ import {
   Images,
   Film,
   ArrowRight,
-  Home
+  Home,
+  Mic
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { CollegeMelodyGenerator } from "./utils";
@@ -879,6 +880,13 @@ export default function App() {
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [uploadedAudioSrc, setUploadedAudioSrc] = useState<string>("");
   const [uploadedAudioName, setUploadedAudioName] = useState<string>("");
+  const [uploadedAudioVolume, setUploadedAudioVolume] = useState<number>(100);
+
+  // Secondary Voice-Over Track State
+  const [voSrc, setVoSrc] = useState<string>("");
+  const [voName, setVoName] = useState<string>("");
+  const [voVolume, setVoVolume] = useState<number>(100);
+
   const [synthesizer] = useState(() => new CollegeMelodyGenerator());
   const [activeSoundtrackType, setActiveSoundtrackType] = useState<"none" | "synth" | "custom">("none");
   
@@ -954,7 +962,9 @@ export default function App() {
   // Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
+  const voInputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const voRef = useRef<HTMLAudioElement | null>(null);
   const progressIntervalRef = useRef<any>(null);
 
   // Synchronize audio playback with video state
@@ -969,10 +979,17 @@ export default function App() {
         if (audioRef.current) audioRef.current.pause();
         synthesizer.start();
       }
+
+      if (voSrc && voRef.current) {
+        voRef.current.play().catch((err) => console.log("VO playback delayed:", err));
+      }
     } else {
       synthesizer.stop();
       if (audioRef.current) {
         audioRef.current.pause();
+      }
+      if (voRef.current) {
+        voRef.current.pause();
       }
     }
     return () => {
@@ -980,15 +997,21 @@ export default function App() {
       if (audioRef.current) {
         audioRef.current.pause();
       }
+      if (voRef.current) {
+        voRef.current.pause();
+      }
     };
-  }, [isPlaying, isMuted, activeSoundtrackType, uploadedAudioSrc]);
+  }, [isPlaying, isMuted, activeSoundtrackType, uploadedAudioSrc, voSrc]);
 
   // Dynamic Volume Adjuster (Volume fade-in, fade-out, individual slide volumes)
   useEffect(() => {
     if (!isPlaying) {
       synthesizer.volumeMultiplier = isMuted ? 0 : 1.0;
       if (audioRef.current) {
-        audioRef.current.volume = isMuted ? 0 : 1.0;
+        audioRef.current.volume = isMuted ? 0 : (uploadedAudioVolume / 100);
+      }
+      if (voRef.current) {
+        voRef.current.volume = isMuted ? 0 : (voVolume / 100);
       }
       return;
     }
@@ -997,6 +1020,9 @@ export default function App() {
       synthesizer.volumeMultiplier = 0;
       if (audioRef.current) {
         audioRef.current.volume = 0;
+      }
+      if (voRef.current) {
+        voRef.current.volume = 0;
       }
       return;
     }
@@ -1035,9 +1061,13 @@ export default function App() {
 
     // Apply calculated volume
     if (activeSoundtrackType === "custom" && audioRef.current) {
-      audioRef.current.volume = calculatedVolume;
+      audioRef.current.volume = calculatedVolume * (uploadedAudioVolume / 100);
     } else if (activeSoundtrackType === "synth") {
       synthesizer.volumeMultiplier = calculatedVolume;
+    }
+
+    if (voRef.current) {
+      voRef.current.volume = calculatedVolume * (voVolume / 100);
     }
   }, [
     isPlaying,
@@ -1048,7 +1078,9 @@ export default function App() {
     slides,
     audioFadeInDuration,
     audioFadeOutDuration,
-    synthesizer
+    synthesizer,
+    uploadedAudioVolume,
+    voVolume
   ]);
 
   // Synchronize dynamic preview slides transition timer
@@ -1466,6 +1498,19 @@ export default function App() {
       const base64Str = event.target?.result as string;
       setUploadedAudioSrc(base64Str);
       setActiveSoundtrackType("custom");
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleVoUploadChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setVoName(file.name);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64Str = event.target?.result as string;
+      setVoSrc(base64Str);
     };
     reader.readAsDataURL(file);
   };
@@ -2893,7 +2938,7 @@ export default function App() {
                   animate={{ opacity: 1, x: 0, width: "auto" }}
                   exit={{ opacity: 0, x: -30, width: 0 }}
                   transition={{ duration: 0.35, ease: "easeInOut" }}
-                  className="lg:col-span-3 bg-stone-900 border border-stone-800 rounded-3xl p-5 shadow-2xl h-[820px] flex flex-col overflow-hidden sticky top-4"
+                  className="lg:col-span-3 bg-stone-900 border border-stone-800 rounded-3xl p-5 shadow-2xl h-[400px] lg:h-[820px] flex flex-col overflow-hidden relative lg:sticky lg:top-4"
                 >
                   {/* Sidebar Header */}
                   <div className="flex items-center justify-between border-b border-stone-800 pb-3 mb-3">
@@ -3999,6 +4044,102 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+                  
+                  {/* Master Audio Volume */}
+                  {activeSoundtrackType === "custom" && (
+                    <div className="pt-4 border-t border-stone-800/80 space-y-2">
+                       <div className="flex items-center justify-between text-[10px] font-mono text-stone-400">
+                        <span>BACKGROUND MUSIC VOLUME</span>
+                        <span className="text-amber-500 font-bold uppercase text-[9px] tracking-wider">{uploadedAudioVolume}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={uploadedAudioVolume}
+                        onChange={(e) => setUploadedAudioVolume(Number(e.target.value))}
+                        className="w-full accent-amber-500 cursor-pointer h-1.5 bg-stone-900 rounded-lg appearance-none"
+                      />
+                    </div>
+                  )}
+
+                </div>
+              </div>
+
+              {/* Secondary Audio Layer (Voice Over) */}
+              <div className="bg-stone-900 border border-stone-800 rounded-3xl p-6 shadow-2xl space-y-4">
+                <div className="flex items-center gap-2">
+                  <Mic className="w-5 h-5 text-emerald-500" />
+                  <h3 className="text-sm font-extrabold text-stone-200">Voice-Over Track</h3>
+                </div>
+                <p className="text-[10px] text-stone-400 leading-relaxed uppercase font-mono">
+                  Add a secondary narration or voice track layer over the background music.
+                </p>
+
+                <div className="bg-stone-950 rounded-2xl p-4 border border-stone-800 space-y-3">
+                  <div className="flex items-center justify-between text-[10px] font-mono text-stone-400">
+                    <span>VOICE FILE SELECTION</span>
+                    {voName && (
+                      <button
+                        onClick={() => {
+                          setVoSrc("");
+                          setVoName("");
+                        }}
+                        className="text-rose-400 hover:text-rose-300 transition-colors"
+                      >
+                        Clear VO Track
+                      </button>
+                    )}
+                  </div>
+
+                  {voName ? (
+                    <div className="flex items-center gap-3 p-3 bg-stone-900 border border-emerald-500/20 rounded-xl">
+                      <div className="p-2.5 bg-emerald-500/10 text-emerald-400 rounded-lg">
+                        <Mic className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-stone-200 truncate">{voName}</p>
+                        <p className="text-[9px] font-mono text-emerald-500 uppercase tracking-wider">Voice-Over Active</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => voInputRef.current?.click()}
+                      className="w-full flex items-center justify-center gap-2 p-3.5 bg-stone-900 hover:bg-stone-800 border border-dashed border-stone-800 hover:border-stone-700 rounded-xl text-xs text-stone-400 hover:text-stone-200 transition-all cursor-pointer"
+                    >
+                      <Upload className="w-4 h-4" />
+                      Upload Narration File
+                    </button>
+                  )}
+                  <input
+                    type="file"
+                    ref={voInputRef}
+                    onChange={handleVoUploadChange}
+                    accept="audio/*"
+                    className="hidden"
+                  />
+                  {voSrc && (
+                    <audio ref={voRef} src={voSrc} />
+                  )}
+
+                  {voSrc && (
+                     <div className="pt-4 border-t border-stone-800/80 space-y-2">
+                       <div className="flex items-center justify-between text-[10px] font-mono text-stone-400">
+                        <span>VOICE-OVER VOLUME</span>
+                        <span className="text-emerald-500 font-bold uppercase text-[9px] tracking-wider">{voVolume}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={voVolume}
+                        onChange={(e) => setVoVolume(Number(e.target.value))}
+                        className="w-full accent-emerald-500 cursor-pointer h-1.5 bg-stone-900 rounded-lg appearance-none"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
 
