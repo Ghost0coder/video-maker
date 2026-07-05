@@ -4457,24 +4457,54 @@ export default function App() {
                             <option value="xlarge">Extra Large</option>
                           </select>
                         </div>
-                        <div className="space-y-1.5">
-                          <label className="text-[9px] font-mono text-stone-500 uppercase">Animation</label>
-                          <select
-                            value={slides[currentIndex].captionAnimation || "fade"}
-                            onChange={e => {
-                              const updated = [...slides];
-                              updated[currentIndex].captionAnimation = e.target.value as any;
-                              setSlides(updated);
-                            }}
-                            className="w-full bg-stone-900 border border-stone-800 rounded px-2 py-1 text-[10px] text-stone-300 focus:border-amber-500/50 focus:outline-none cursor-pointer"
-                          >
-                            <option value="fade">Fade In/Out</option>
-                            <option value="slideUp">Slide Up</option>
-                            <option value="typewriter">Typewriter</option>
-                            <option value="scale">Pop/Scale</option>
-                            <option value="bounce">Bounce</option>
-                            <option value="none">None (Static)</option>
-                          </select>
+                        <div className="col-span-2 sm:col-span-4 space-y-1.5 pt-2">
+                          <label className="text-[9px] font-mono text-stone-500 uppercase block mb-1">Text Animation Gallery</label>
+                          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                            {[
+                              { id: "fade", label: "Fade" },
+                              { id: "slideUp", label: "Slide Up" },
+                              { id: "typewriter", label: "Type" },
+                              { id: "scale", label: "Scale" },
+                              { id: "bounce", label: "Bounce" },
+                              { id: "none", label: "Static" },
+                            ].map((anim) => {
+                              const isSelected = (slides[currentIndex].captionAnimation || "fade") === anim.id;
+                              return (
+                                <button
+                                  key={anim.id}
+                                  type="button"
+                                  onClick={() => {
+                                    const updated = [...slides];
+                                    updated[currentIndex].captionAnimation = anim.id as any;
+                                    setSlides(updated);
+                                  }}
+                                  className={`relative h-12 flex flex-col items-center justify-center border rounded-lg overflow-hidden transition-all ${
+                                    isSelected
+                                      ? "border-amber-500 bg-amber-500/10 text-amber-500"
+                                      : "border-stone-800 bg-stone-900 hover:bg-stone-800 text-stone-400"
+                                  }`}
+                                >
+                                  <span className="text-[9px] font-mono z-10">{anim.label}</span>
+                                  <div className="absolute inset-0 flex items-center justify-center opacity-30 pointer-events-none">
+                                    <motion.span
+                                      animate={
+                                        anim.id === "fade" ? { opacity: [0.1, 1, 0.1] } :
+                                        anim.id === "slideUp" ? { opacity: [0.1, 1, 0.1], y: [10, 0, -10] } :
+                                        anim.id === "scale" ? { opacity: [0.1, 1, 0.1], scale: [0.5, 1.2, 0.5] } :
+                                        anim.id === "bounce" ? { opacity: [0.1, 1, 0.1], y: [0, -8, 0] } :
+                                        anim.id === "typewriter" ? { clipPath: ["inset(0 100% 0 0)", "inset(0 0% 0 0)", "inset(0 0% 0 0)"] } :
+                                        {}
+                                      }
+                                      transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                                      className="text-[10px] font-bold tracking-widest uppercase"
+                                    >
+                                      ABC
+                                    </motion.span>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
                       </div>
                     )}
