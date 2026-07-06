@@ -38,10 +38,12 @@ import {
   Film,
   ArrowRight,
   Home,
-  Mic
+  Mic,
+  Camera
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { CollegeMelodyGenerator } from "./utils";
+import { PhotoEditor } from "./PhotoEditor";
 
 interface VideoSlide {
   id: string;
@@ -57,10 +59,18 @@ interface VideoSlide {
   fitMode?: "cover" | "contain";
   zoomMultiplier?: number; // scale adjustment from 0.6 to 2.0
   showSubtitle?: boolean;
+  mediaType?: "image" | "video";
+  trimStart?: number;
+  trimEnd?: number;
   volume?: number; // individual slide volume adjustment (0 to 100, default 100)
   filter?: "none" | "grayscale" | "sepia" | "vibrant" | "vintage" | "invert" | "warm" | "cool" | "dramatic" | "cyberpunk" | "technicolor" | "monochrome" | "dream"; // artistic filters
+  brightness?: number;
+  contrast?: number;
+  saturation?: number;
+  hueRotate?: number;
   motionAngle?: number; // 0 to 360
   motionSpeed?: number; // 0 to 100
+  bezierCurve?: [number, number, number, number]; // [x1, y1, x2, y2]
   anchorX?: number; // 0 to 100
   anchorY?: number; // 0 to 100
   maskType?: "none" | "radial_focus" | "vignette" | "split_mask";
@@ -193,36 +203,33 @@ const SYSTEM_PRESETS: StylePreset[] = [
   }
 ];
 
-export const getFilterCss = (filter?: string): string => {
-  if (!filter || filter === "none") return "none";
-  switch (filter) {
-    case "grayscale":
-      return "grayscale(100%)";
-    case "sepia":
-      return "sepia(100%)";
-    case "vibrant":
-      return "saturate(180%) contrast(115%)";
-    case "vintage":
-      return "contrast(115%) sepia(35%) saturate(110%)";
-    case "invert":
-      return "invert(100%)";
-    case "warm":
-      return "sepia(20%) saturate(130%)";
-    case "cool":
-      return "contrast(105%) hue-rotate(-10deg) saturate(95%)";
-    case "dramatic":
-      return "contrast(135%) saturate(50%) brightness(90%)";
-    case "cyberpunk":
-      return "contrast(125%) saturate(160%) hue-rotate(55deg) brightness(110%)";
-    case "technicolor":
-      return "contrast(140%) sepia(12%) saturate(210%) hue-rotate(-8deg)";
-    case "monochrome":
-      return "contrast(210%) grayscale(100%) brightness(105%)";
-    case "dream":
-      return "contrast(90%) brightness(112%) saturate(115%) blur(0.4px)";
-    default:
-      return "none";
+export const getFilterCss = (slide?: Partial<VideoSlide>): string => {
+  if (!slide) return "none";
+  let filterStr = "";
+
+  if (slide.filter && slide.filter !== "none") {
+    switch (slide.filter) {
+      case "grayscale": filterStr += "grayscale(100%) "; break;
+      case "sepia": filterStr += "sepia(100%) "; break;
+      case "vibrant": filterStr += "saturate(180%) contrast(115%) "; break;
+      case "vintage": filterStr += "contrast(115%) sepia(35%) saturate(110%) "; break;
+      case "invert": filterStr += "invert(100%) "; break;
+      case "warm": filterStr += "sepia(20%) saturate(130%) "; break;
+      case "cool": filterStr += "contrast(105%) hue-rotate(-10deg) saturate(95%) "; break;
+      case "dramatic": filterStr += "contrast(135%) saturate(50%) brightness(90%) "; break;
+      case "cyberpunk": filterStr += "contrast(125%) saturate(160%) hue-rotate(55deg) brightness(110%) "; break;
+      case "technicolor": filterStr += "contrast(140%) sepia(12%) saturate(210%) hue-rotate(-8deg) "; break;
+      case "monochrome": filterStr += "contrast(210%) grayscale(100%) brightness(105%) "; break;
+      case "dream": filterStr += "contrast(90%) brightness(112%) saturate(115%) blur(0.4px) "; break;
+    }
   }
+
+  if (slide.brightness !== undefined && slide.brightness !== 100) filterStr += `brightness(${slide.brightness}%) `;
+  if (slide.contrast !== undefined && slide.contrast !== 100) filterStr += `contrast(${slide.contrast}%) `;
+  if (slide.saturation !== undefined && slide.saturation !== 100) filterStr += `saturate(${slide.saturation}%) `;
+  if (slide.hueRotate !== undefined && slide.hueRotate !== 0) filterStr += `hue-rotate(${slide.hueRotate}deg) `;
+
+  return filterStr.trim() || "none";
 };
 
 function compressImage(file: File, maxWidth = 1000, maxHeight = 1000, quality = 0.6): Promise<string> {
@@ -372,6 +379,7 @@ interface GalleryAsset {
   url: string;
   name: string;
   addedAt: number;
+  mediaType?: "image" | "video";
 }
 
 function getInitialGalleryAssets(): GalleryAsset[] {
@@ -565,7 +573,7 @@ export default function App() {
 
   // Project Management State
   const [projectName, setProjectName] = useState<string>("My Project");
-  const [currentView, setCurrentView] = useState<"home" | "editor">("home");
+  const [currentView, setCurrentView] = useState<"home" | "editor" | "photo_editor">("home");
   const [availableProjects, setAvailableProjects] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("cinematic_projects_list") || "[]"); } catch { return []; }
   });
@@ -1118,14 +1126,21 @@ export default function App() {
 
   // Bulk Image Upload Handler
   const processUploadedFiles = async (files: FileList) => {
-    const imageFiles = (Array.from(files) as File[]).filter(f => f.type.startsWith("image/"));
+    const imageFiles = (Array.from(files) as File[]).filter(f => f.type.startsWith("image/") || f.type.startsWith("video/"));
     if (imageFiles.length === 0) return;
 
     try {
       const processedResults = await Promise.all(
         imageFiles.map(async (file, index) => {
+          const isVideo = file.type.startsWith("video/");
+          
           try {
-            const dataUrl = await compressImage(file);
+            let dataUrl = "";
+            if (isVideo) {
+              dataUrl = URL.createObjectURL(file);
+            } else {
+              dataUrl = await compressImage(file);
+            }
             // Pick creative random transitions for smooth visual variation
             const transitions: Array<VideoSlide["transition"]> = [
               "zoom", "panLeft", "panRight", "slideUp", "slideLeft", "slideRight", "blurFade", "retroSpin"
@@ -1139,17 +1154,43 @@ export default function App() {
               id: `slide_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 5)}`,
               url: dataUrl,
               name: file.name,
-              duration: 3,
+              duration: isVideo ? 10 : 3, // Default longer duration for videos
               transition,
               caption: `${prettyName} Memory`,
               fitMode: "cover",
               zoomMultiplier: 1.0,
-              showSubtitle: true
+              showSubtitle: true,
+              mediaType: isVideo ? "video" : "image",
+              trimStart: 0,
+              trimEnd: isVideo ? 10 : 0
             } as VideoSlide;
           } catch (err) {
             console.error(`Error compressing image ${file.name}`, err);
             // Fallback to reading raw file if compression fails
             return new Promise<VideoSlide | null>((resolve) => {
+              if (isVideo) {
+                const dataUrl = URL.createObjectURL(file);
+                const transitions: Array<VideoSlide["transition"]> = [
+                  "zoom", "panLeft", "panRight", "slideUp", "slideLeft", "slideRight", "blurFade", "retroSpin"
+                ];
+                const transition = transitions[index % transitions.length];
+                const prettyName = file.name.replace(/\.[^/.]+$/, "").substring(0, 20);
+                resolve({
+                  id: `slide_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 5)}`,
+                  url: dataUrl,
+                  name: file.name,
+                  duration: 10,
+                  transition,
+                  caption: `${prettyName} Memory`,
+                  fitMode: "cover",
+                  zoomMultiplier: 1.0,
+                  showSubtitle: true,
+                  mediaType: "video",
+                  trimStart: 0,
+                  trimEnd: 10
+                });
+                return;
+              }
               const reader = new FileReader();
               reader.onload = (event) => {
                 const dataUrl = event.target?.result as string;
@@ -1167,7 +1208,8 @@ export default function App() {
                   caption: `${prettyName} Memory`,
                   fitMode: "cover",
                   zoomMultiplier: 1.0,
-                  showSubtitle: true
+                  showSubtitle: true,
+                  mediaType: "image"
                 });
               };
               reader.onerror = () => resolve(null);
@@ -1272,23 +1314,40 @@ export default function App() {
   // Handle uploading photos directly into the Asset Gallery sidebar
   const handleAssetUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
-    const files = (Array.from(e.target.files) as File[]).filter(f => f.type.startsWith("image/"));
+    const files = (Array.from(e.target.files) as File[]).filter(f => f.type.startsWith("image/") || f.type.startsWith("video/"));
     if (files.length === 0) return;
 
     try {
       const processedResults = await Promise.all(
         files.map(async (file, index) => {
+          const isVideo = file.type.startsWith("video/");
           try {
-            const dataUrl = await compressImage(file);
+            let dataUrl = "";
+            if (isVideo) {
+              dataUrl = URL.createObjectURL(file);
+            } else {
+              dataUrl = await compressImage(file);
+            }
             return {
               id: `asset_upload_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 5)}`,
               url: dataUrl,
               name: file.name,
-              addedAt: Date.now()
+              addedAt: Date.now(),
+              mediaType: isVideo ? "video" : "image"
             } as GalleryAsset;
           } catch (err) {
             console.error(`Error compressing gallery image ${file.name}`, err);
             return new Promise<GalleryAsset | null>((resolve) => {
+              if (isVideo) {
+                resolve({
+                  id: `asset_upload_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 5)}`,
+                  url: URL.createObjectURL(file),
+                  name: file.name,
+                  addedAt: Date.now(),
+                  mediaType: "video"
+                });
+                return;
+              }
               const reader = new FileReader();
               reader.onload = (event) => {
                 const dataUrl = event.target?.result as string;
@@ -1296,7 +1355,8 @@ export default function App() {
                   id: `asset_upload_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 5)}`,
                   url: dataUrl,
                   name: file.name,
-                  addedAt: Date.now()
+                  addedAt: Date.now(),
+                  mediaType: "image"
                 });
               };
               reader.onerror = () => resolve(null);
@@ -2055,7 +2115,7 @@ export default function App() {
           ctx.save();
           let filterString = "";
           if (activeSlide.filter && activeSlide.filter !== "none") {
-            filterString += getFilterCss(activeSlide.filter) + " ";
+            filterString += getFilterCss(activeSlide) + " ";
           }
           if (blurAmount > 0) {
             filterString += `blur(${blurAmount}px) `;
@@ -2677,8 +2737,65 @@ export default function App() {
         break;
     }
 
+    if (slide.bezierCurve && slide.bezierCurve.length === 4) {
+      transition.ease = slide.bezierCurve;
+    }
+
     return { initial, animate, transition };
   };
+
+  const renderInspectorPreview = () => (
+    <div className="relative aspect-video bg-stone-950 rounded-xl overflow-hidden border border-stone-800 flex items-center justify-center group mb-4">
+      <AnimatePresence mode="wait">
+        {slides[currentIndex].mediaType === "video" ? (
+          <motion.video
+            key={`${currentIndex}_${slides[currentIndex].transition}_${previewToggle}_video`}
+            src={`${slides[currentIndex].url}#t=${slides[currentIndex].trimStart || 0},${slides[currentIndex].trimEnd || slides[currentIndex].duration}`}
+            className={`w-full h-full ${
+              slides[currentIndex].fitMode === "contain" ? "object-contain" : "object-cover"
+            }`}
+            autoPlay
+            loop
+            muted
+            playsInline
+            style={{ filter: getFilterCss(slides[currentIndex]) }}
+            {...getMotionAnimation(slides[currentIndex], 1.2)}
+          />
+        ) : (
+          <motion.img
+            key={`${currentIndex}_${slides[currentIndex].transition}_${previewToggle}`}
+            src={slides[currentIndex].url}
+            alt="Inspector Thumbnail"
+            className={`w-full h-full ${
+              slides[currentIndex].fitMode === "contain" ? "object-contain" : "object-cover"
+            }`}
+            style={{ filter: getFilterCss(slides[currentIndex]) }}
+            referrerPolicy="no-referrer"
+            {...getMotionAnimation(slides[currentIndex], 1.2)}
+          />
+        )}
+      </AnimatePresence>
+        
+      <span className="absolute bottom-2 left-2 text-[8px] font-mono bg-stone-900/95 text-stone-400 px-1.5 py-0.5 rounded border border-stone-800 uppercase pointer-events-none z-10">
+        {slides[currentIndex].fitMode === "contain" ? "Contain" : "Cover"}
+      </span>
+
+      <span className="absolute top-2 left-2 text-[8px] font-mono bg-amber-500/90 text-stone-950 px-2 py-0.5 rounded-full font-bold uppercase shadow-sm z-10 pointer-events-none">
+        Effect: {slides[currentIndex].transition || "zoom"}
+      </span>
+
+      <button
+        onClick={() => setPreviewToggle(prev => prev + 1)}
+        className="absolute inset-0 bg-black/55 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-1.5 text-white text-[10px] font-bold font-mono transition-all duration-200 cursor-pointer z-20"
+        title="Replay Transition Animation Preview"
+      >
+        <span className="p-2 bg-amber-500 hover:scale-110 active:scale-95 text-stone-950 rounded-full shadow-lg transition-transform">
+          <Play className="w-3.5 h-3.5 fill-stone-950" />
+        </span>
+        <span className="bg-stone-950/90 px-2 py-0.5 rounded-lg border border-stone-800 tracking-wider">REPLAY PREVIEW</span>
+      </button>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-stone-950 text-stone-100 font-sans selection:bg-amber-500 selection:text-black relative overflow-x-hidden">
@@ -2697,7 +2814,7 @@ export default function App() {
               <p className="text-stone-400 font-mono text-sm max-w-md mx-auto">Create beautiful HTML5 canvas video slideshows with Web Audio integration.</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-3xl mt-12">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full max-w-5xl mt-12">
               <button
                 onClick={() => {
                   setSlides([]);
@@ -2707,14 +2824,29 @@ export default function App() {
                   setExportResolution("1080p");
                   setCurrentView("editor");
                 }}
-                className="flex flex-col items-center justify-center gap-4 p-10 rounded-3xl border-2 border-dashed border-stone-800 bg-stone-900/40 hover:bg-stone-900 hover:border-amber-500/50 transition-all cursor-pointer group"
+                className="flex flex-col items-center justify-center gap-4 p-8 rounded-3xl border-2 border-dashed border-stone-800 bg-stone-900/40 hover:bg-stone-900 hover:border-amber-500/50 transition-all cursor-pointer group h-[280px]"
               >
                 <div className="p-4 bg-stone-950 rounded-2xl group-hover:scale-110 transition-transform shadow-xl">
-                  <Plus className="w-8 h-8 text-amber-500" />
+                  <Video className="w-8 h-8 text-amber-500" />
                 </div>
                 <div className="text-center">
-                  <h3 className="font-bold text-lg text-stone-200">Start New Project</h3>
-                  <p className="text-xs text-stone-500 mt-2 font-mono">Blank canvas timeline</p>
+                  <h3 className="font-bold text-lg text-stone-200">Video Project</h3>
+                  <p className="text-xs text-stone-500 mt-2 font-mono">Create video slideshows</p>
+                </div>
+              </button>
+
+              <button
+                onClick={() => {
+                  setCurrentView("photo_editor");
+                }}
+                className="flex flex-col items-center justify-center gap-4 p-8 rounded-3xl border-2 border-dashed border-stone-800 bg-stone-900/40 hover:bg-stone-900 hover:border-blue-500/50 transition-all cursor-pointer group h-[280px]"
+              >
+                <div className="p-4 bg-stone-950 rounded-2xl group-hover:scale-110 transition-transform shadow-xl">
+                  <Camera className="w-8 h-8 text-blue-500" />
+                </div>
+                <div className="text-center">
+                  <h3 className="font-bold text-lg text-stone-200">Photo Editor</h3>
+                  <p className="text-xs text-stone-500 mt-2 font-mono">Lightroom style editor</p>
                 </div>
               </button>
 
@@ -2749,6 +2881,20 @@ export default function App() {
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+        ) : currentView === "photo_editor" ? (
+          <div className="flex flex-col flex-1 relative w-full -mt-4">
+            <div className="flex mb-4">
+              <button 
+                onClick={() => setCurrentView("home")} 
+                className="text-stone-400 hover:text-white flex items-center gap-2 text-xs font-mono px-3 py-1.5 bg-stone-900 border border-stone-800 rounded-lg hover:bg-stone-800 transition-colors"
+              >
+                <ArrowRight className="w-3.5 h-3.5 rotate-180"/> Back to Home
+              </button>
+            </div>
+            <div className="flex-1 rounded-2xl overflow-hidden border border-stone-800 shadow-2xl">
+              <PhotoEditor />
             </div>
           </div>
         ) : (
@@ -2885,7 +3031,7 @@ export default function App() {
               type="file"
               ref={fileInputRef}
               onChange={handleImageFileChange}
-              accept="image/*"
+              accept="image/*,video/*"
               multiple
               className="hidden"
             />
@@ -2979,7 +3125,7 @@ export default function App() {
                         type="file"
                         ref={sidebarFileInputRef}
                         onChange={handleAssetUpload}
-                        accept="image/*"
+                        accept="image/*,video/*"
                         multiple
                         className="hidden"
                       />
@@ -3205,11 +3351,11 @@ export default function App() {
                 </div>
 
                 {/* Primary Slide Display Window */}
-                <div className={`relative bg-stone-950 rounded-2xl overflow-hidden border border-stone-800 shadow-inner flex items-center justify-center transition-all duration-300 ${
+                <div className={`relative bg-stone-950 rounded-2xl overflow-hidden border border-stone-800 shadow-inner flex items-center justify-center transition-all duration-300 mx-auto ${
                   videoAspectRatio === "16:9" ? "aspect-video w-full" :
-                  videoAspectRatio === "9:16" ? "aspect-[9/16] h-[480px] sm:h-[520px] mx-auto" :
-                  videoAspectRatio === "1:1" ? "aspect-square h-[450px] mx-auto" :
-                  "aspect-[4/3] h-[450px] mx-auto"
+                  videoAspectRatio === "9:16" ? "aspect-[9/16] w-full max-w-[320px] sm:h-[520px] sm:w-auto" :
+                  videoAspectRatio === "1:1" ? "aspect-square w-full max-w-[450px] sm:h-[450px] sm:w-auto" :
+                  "aspect-[4/3] w-full max-w-[500px] sm:h-[450px] sm:w-auto"
                 }`}>
                   <AnimatePresence mode="wait">
                     {slides[currentIndex] && (
@@ -3234,20 +3380,39 @@ export default function App() {
                         }}
                       >
                         {/* Interactive Image Frame with customized animation transitions & anchor origin pivot */}
-                        <motion.img
-                          key={slides[currentIndex].id + "_motion"}
-                          src={slides[currentIndex].url}
-                          alt="Cinematic Image Frame"
-                          className={`w-full h-full ${
-                            slides[currentIndex].fitMode === "contain" ? "object-contain bg-stone-950" : "object-cover"
-                          }`}
-                          referrerPolicy="no-referrer"
-                          style={{
-                            filter: getFilterCss(slides[currentIndex].filter),
-                            transformOrigin: `${slides[currentIndex].anchorX !== undefined ? slides[currentIndex].anchorX : 50}% ${slides[currentIndex].anchorY !== undefined ? slides[currentIndex].anchorY : 50}%`,
-                          }}
-                          {...getMotionAnimation(slides[currentIndex], slides[currentIndex].duration)}
-                        />
+                        {slides[currentIndex].mediaType === "video" ? (
+                          <motion.video
+                            key={slides[currentIndex].id + "_motion_video"}
+                            src={`${slides[currentIndex].url}#t=${slides[currentIndex].trimStart || 0},${slides[currentIndex].trimEnd || slides[currentIndex].duration}`}
+                            className={`w-full h-full ${
+                              slides[currentIndex].fitMode === "contain" ? "object-contain bg-stone-950" : "object-cover"
+                            }`}
+                            autoPlay
+                            loop
+                            muted
+                            playsInline
+                            style={{
+                              filter: getFilterCss(slides[currentIndex]),
+                              transformOrigin: `${slides[currentIndex].anchorX !== undefined ? slides[currentIndex].anchorX : 50}% ${slides[currentIndex].anchorY !== undefined ? slides[currentIndex].anchorY : 50}%`,
+                            }}
+                            {...getMotionAnimation(slides[currentIndex], slides[currentIndex].duration)}
+                          />
+                        ) : (
+                          <motion.img
+                            key={slides[currentIndex].id + "_motion"}
+                            src={slides[currentIndex].url}
+                            alt="Cinematic Image Frame"
+                            className={`w-full h-full ${
+                              slides[currentIndex].fitMode === "contain" ? "object-contain bg-stone-950" : "object-cover"
+                            }`}
+                            referrerPolicy="no-referrer"
+                            style={{
+                              filter: getFilterCss(slides[currentIndex]),
+                              transformOrigin: `${slides[currentIndex].anchorX !== undefined ? slides[currentIndex].anchorX : 50}% ${slides[currentIndex].anchorY !== undefined ? slides[currentIndex].anchorY : 50}%`,
+                            }}
+                            {...getMotionAnimation(slides[currentIndex], slides[currentIndex].duration)}
+                          />
+                        )}
 
                         {/* LIVE PREVIEW VISUAL EFFECTS (VFX) */}
                         {slides[currentIndex].vfxType && slides[currentIndex].vfxType !== "none" && (
@@ -4209,7 +4374,7 @@ export default function App() {
                   </div>
 
                   {/* Inspector Tabs */}
-                  <div className="flex bg-stone-950 p-1.5 rounded-xl border border-stone-800 gap-1.5 overflow-x-auto w-full">
+                  <div className="flex flex-wrap bg-stone-950 p-1.5 rounded-xl border border-stone-800 gap-1.5 w-full">
                     {[
                       { id: "media", label: "Media & Basic" },
                       { id: "text", label: "Text & Subtitles" },
@@ -4331,44 +4496,8 @@ export default function App() {
 
                   {inspectorTab === "media" && (
                     <>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {/* Thumbnail Preview in inspector with transition preview */}
-                    <div className="relative aspect-video bg-stone-950 rounded-xl overflow-hidden border border-stone-800 flex items-center justify-center group">
-                      <AnimatePresence mode="wait">
-                        <motion.img
-                          key={`${currentIndex}_${slides[currentIndex].transition}_${previewToggle}`}
-                          src={slides[currentIndex].url}
-                          alt="Inspector Thumbnail"
-                          className={`w-full h-full ${
-                            slides[currentIndex].fitMode === "contain" ? "object-contain" : "object-cover"
-                          }`}
-                          style={{ filter: getFilterCss(slides[currentIndex].filter) }}
-                          referrerPolicy="no-referrer"
-                          {...getMotionAnimation(slides[currentIndex], 1.2)}
-                        />
-                      </AnimatePresence>
-                      
-                      <span className="absolute bottom-2 left-2 text-[8px] font-mono bg-stone-900/95 text-stone-400 px-1.5 py-0.5 rounded border border-stone-800 uppercase pointer-events-none z-10">
-                        {slides[currentIndex].fitMode === "contain" ? "Contain" : "Cover"}
-                      </span>
-
-                      {/* Floating Active Transition Style Badge */}
-                      <span className="absolute top-2 left-2 text-[8px] font-mono bg-amber-500/90 text-stone-950 px-2 py-0.5 rounded-full font-bold uppercase shadow-sm z-10 pointer-events-none">
-                        Effect: {slides[currentIndex].transition || "zoom"}
-                      </span>
-
-                      {/* Small floating replay preview overlay */}
-                      <button
-                        onClick={() => setPreviewToggle(prev => prev + 1)}
-                        className="absolute inset-0 bg-black/55 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-1.5 text-white text-[10px] font-bold font-mono transition-all duration-200 cursor-pointer z-20"
-                        title="Replay Transition Animation Preview"
-                      >
-                        <span className="p-2 bg-amber-500 hover:scale-110 active:scale-95 text-stone-950 rounded-full shadow-lg transition-transform">
-                          <Play className="w-3.5 h-3.5 fill-stone-950" />
-                        </span>
-                        <span className="bg-stone-950/90 px-2 py-0.5 rounded-lg border border-stone-800 tracking-wider">REPLAY PREVIEW</span>
-                      </button>
-                    </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {renderInspectorPreview()}
 
                     {/* Quick controls */}
                     <div className="space-y-3">
@@ -4436,6 +4565,46 @@ export default function App() {
                           <span>2.0x (Zoom In)</span>
                         </div>
                       </div>
+
+                      {slides[currentIndex].mediaType === "video" && (
+                        <div className="bg-stone-950 p-3 rounded-xl border border-stone-800 space-y-2">
+                          <label className="text-[10px] font-mono uppercase text-amber-500 font-bold block mb-1">
+                            Asset Trimmer
+                          </label>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <span className="text-[9px] text-stone-400 block mb-1">Trim Start (s)</span>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.5"
+                                value={slides[currentIndex].trimStart || 0}
+                                onChange={(e) => {
+                                  const updated = [...slides];
+                                  updated[currentIndex].trimStart = Number(e.target.value);
+                                  setSlides(updated);
+                                }}
+                                className="w-full bg-stone-900 border border-stone-800 rounded-lg p-1.5 text-xs text-stone-200 outline-none focus:border-amber-500"
+                              />
+                            </div>
+                            <div>
+                              <span className="text-[9px] text-stone-400 block mb-1">Trim End (s)</span>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.5"
+                                value={slides[currentIndex].trimEnd || slides[currentIndex].duration}
+                                onChange={(e) => {
+                                  const updated = [...slides];
+                                  updated[currentIndex].trimEnd = Number(e.target.value);
+                                  setSlides(updated);
+                                }}
+                                className="w-full bg-stone-900 border border-stone-800 rounded-lg p-1.5 text-xs text-stone-200 outline-none focus:border-amber-500"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       <div>
                         <div className="flex justify-between items-center mb-1">
@@ -4567,13 +4736,94 @@ export default function App() {
                       ))}
                     </div>
                   </div>
+
+                  {/* Manual Color Grading */}
+                  <div className="border-t border-stone-800/60 pt-4 space-y-4">
+                    <label className="block text-[10px] font-mono uppercase text-stone-400 font-bold flex items-center gap-1.5">
+                      <Sliders className="w-3.5 h-3.5 text-amber-500" />
+                      Color Grading
+                    </label>
+                    <div className="grid grid-cols-2 gap-4">
+                      {/* Brightness */}
+                      <div>
+                        <div className="flex justify-between items-center mb-1">
+                          <label className="text-[9px] text-stone-400 font-mono">Brightness</label>
+                          <span className="text-[9px] font-mono text-amber-500">{slides[currentIndex].brightness ?? 100}%</span>
+                        </div>
+                        <input
+                          type="range" min="0" max="200"
+                          value={slides[currentIndex].brightness ?? 100}
+                          onChange={(e) => {
+                            const updated = [...slides];
+                            updated[currentIndex].brightness = Number(e.target.value);
+                            setSlides(updated);
+                          }}
+                          className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-900 rounded-lg appearance-none"
+                        />
+                      </div>
+                      {/* Contrast */}
+                      <div>
+                        <div className="flex justify-between items-center mb-1">
+                          <label className="text-[9px] text-stone-400 font-mono">Contrast</label>
+                          <span className="text-[9px] font-mono text-amber-500">{slides[currentIndex].contrast ?? 100}%</span>
+                        </div>
+                        <input
+                          type="range" min="0" max="200"
+                          value={slides[currentIndex].contrast ?? 100}
+                          onChange={(e) => {
+                            const updated = [...slides];
+                            updated[currentIndex].contrast = Number(e.target.value);
+                            setSlides(updated);
+                          }}
+                          className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-900 rounded-lg appearance-none"
+                        />
+                      </div>
+                      {/* Saturation */}
+                      <div>
+                        <div className="flex justify-between items-center mb-1">
+                          <label className="text-[9px] text-stone-400 font-mono">Saturation</label>
+                          <span className="text-[9px] font-mono text-amber-500">{slides[currentIndex].saturation ?? 100}%</span>
+                        </div>
+                        <input
+                          type="range" min="0" max="200"
+                          value={slides[currentIndex].saturation ?? 100}
+                          onChange={(e) => {
+                            const updated = [...slides];
+                            updated[currentIndex].saturation = Number(e.target.value);
+                            setSlides(updated);
+                          }}
+                          className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-900 rounded-lg appearance-none"
+                        />
+                      </div>
+                      {/* Hue Rotate */}
+                      <div>
+                        <div className="flex justify-between items-center mb-1">
+                          <label className="text-[9px] text-stone-400 font-mono">Hue Rotate</label>
+                          <span className="text-[9px] font-mono text-amber-500">{slides[currentIndex].hueRotate ?? 0}°</span>
+                        </div>
+                        <input
+                          type="range" min="0" max="360"
+                          value={slides[currentIndex].hueRotate ?? 0}
+                          onChange={(e) => {
+                            const updated = [...slides];
+                            updated[currentIndex].hueRotate = Number(e.target.value);
+                            setSlides(updated);
+                          }}
+                          className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-900 rounded-lg appearance-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
                   </>
                   )}
 
                   {inspectorTab === "text" && (
                   <>
-                   <div className="space-y-2 border-t border-stone-800/60 pt-4">
-                    <div className="flex items-center justify-between">
+                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {renderInspectorPreview()}
+                    <div className="space-y-4">
+                     <div className="space-y-2 border-t border-stone-800/60 pt-4">
+                      <div className="flex items-center justify-between">
                       <label className="text-[10px] font-mono uppercase text-stone-400 font-bold flex items-center gap-1.5">
                         <FontIcon className="w-3.5 h-3.5 text-amber-500" />
                         Subtitle Overlay & Caption
@@ -4763,12 +5013,17 @@ export default function App() {
                     <p className="text-[9px] text-stone-500 leading-tight">
                       Disable subtitle visibility to completely hide captions on both live preview and exported videos, or use "Clear" to reset.
                     </p>
+                   </div>
                   </div>
+                 </div>
                   </>
                   )}
 
                   {inspectorTab === "vfx" && (
                   <>
+                  <div className="grid grid-cols-1 lg:grid-cols-[350px_1fr] gap-4">
+                    {renderInspectorPreview()}
+                    <div className="space-y-4">
                   {/* Advanced Camera Motion & VFX Studio */}
                   <div className="border-t border-stone-800/60 pt-4 space-y-4">
                     <div className="flex items-center justify-between">
@@ -5174,6 +5429,76 @@ export default function App() {
                       </p>
                     </div>
 
+                    {/* Sub-Panel 6: Custom Animation Curve Editor (Bezier) */}
+                    <div className="bg-stone-950 p-4 rounded-2xl border border-stone-800/80 space-y-3.5 mt-4">
+                      <div className="flex items-center justify-between border-b border-stone-800/55 pb-2">
+                        <div className="flex items-center gap-2">
+                          <Settings className="w-3.5 h-3.5 text-amber-400" />
+                          <span className="text-[10px] font-bold text-stone-200 font-mono uppercase">6. Custom Animation Curve (Easing)</span>
+                        </div>
+                      </div>
+                      <div className="space-y-4">
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => {
+                              const updated = [...slides];
+                              updated[currentIndex].bezierCurve = undefined;
+                              setSlides(updated);
+                            }}
+                            className={`flex-1 py-1.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer border ${!slides[currentIndex].bezierCurve ? "bg-amber-500/10 border-amber-500/40 text-amber-400" : "bg-stone-900 border-stone-800 text-stone-400 hover:text-stone-300"}`}
+                          >
+                            Default
+                          </button>
+                          <button
+                            onClick={() => {
+                              const updated = [...slides];
+                              updated[currentIndex].bezierCurve = [0.25, 0.1, 0.25, 1]; // ease
+                              setSlides(updated);
+                            }}
+                            className={`flex-1 py-1.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer border ${slides[currentIndex].bezierCurve ? "bg-amber-500/10 border-amber-500/40 text-amber-400" : "bg-stone-900 border-stone-800 text-stone-400 hover:text-stone-300"}`}
+                          >
+                            Custom Curve
+                          </button>
+                        </div>
+                        
+                        {slides[currentIndex].bezierCurve && (
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                            {[
+                              { label: 'P1 X', idx: 0, min: 0, max: 1 },
+                              { label: 'P1 Y', idx: 1, min: -1, max: 2 },
+                              { label: 'P2 X', idx: 2, min: 0, max: 1 },
+                              { label: 'P2 Y', idx: 3, min: -1, max: 2 },
+                            ].map(({ label, idx, min, max }) => (
+                              <div key={label}>
+                                <div className="flex justify-between items-center mb-1">
+                                  <label className="text-[9px] text-stone-400 font-mono">{label}</label>
+                                  <span className="text-[9px] font-mono text-amber-500">{slides[currentIndex].bezierCurve![idx].toFixed(2)}</span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min={min}
+                                  max={max}
+                                  step={0.01}
+                                  value={slides[currentIndex].bezierCurve![idx]}
+                                  onChange={(e) => {
+                                    const updated = [...slides];
+                                    const curve = [...(updated[currentIndex].bezierCurve || [0.25, 0.1, 0.25, 1])] as [number, number, number, number];
+                                    curve[idx] = parseFloat(e.target.value);
+                                    updated[currentIndex].bezierCurve = curve;
+                                    setSlides(updated);
+                                  }}
+                                  className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-900 rounded-lg appearance-none"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <p className="text-[9px] text-stone-500 leading-tight">
+                          Adjust the cubic-bezier coordinates to craft bespoke animation easing. The X axis represents time (0 to 1), and Y represents progression. You can exceed the 0-1 bounds on the Y axis for bounce/overshoot effects!
+                        </p>
+                      </div>
+                    </div>
+
                     {/* Option to Check All Frames for Quality Issues / Audit Warnings */}
                     <div className="border-t border-stone-800/60 pt-4 space-y-3">
                       <div className="flex items-center justify-between">
@@ -5262,6 +5587,8 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+                 </div>
+                </div>
                   </>
                   )}
                 </div>
@@ -5500,7 +5827,7 @@ export default function App() {
                                 src={slide.url}
                                 alt={`Slide ${idx + 1}`}
                                 className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
-                                style={{ filter: getFilterCss(slide.filter) }}
+                                style={{ filter: getFilterCss(slide) }}
                                 referrerPolicy="no-referrer"
                               />
 
