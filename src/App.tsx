@@ -42,6 +42,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { CollegeMelodyGenerator } from "./utils";
+import { Home3DBackground } from "./Home3DBackground";
 
 interface VideoSlide {
   id: string;
@@ -2798,12 +2799,18 @@ export default function App() {
   return (
     <div className="min-h-screen bg-stone-950 text-stone-100 font-sans selection:bg-amber-500 selection:text-black relative overflow-x-hidden">
       {/* Background ambient texture glow */}
-      <div className="absolute top-0 left-1/4 w-96 h-96 bg-amber-500/5 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-10 right-1/4 w-96 h-96 bg-amber-600/5 rounded-full blur-[120px] pointer-events-none" />
+      {currentView === "home" ? (
+         <Home3DBackground />
+      ) : (
+         <>
+            <div className="absolute top-0 left-1/4 w-96 h-96 bg-amber-500/5 rounded-full blur-[120px] pointer-events-none" />
+            <div className="absolute bottom-10 right-1/4 w-96 h-96 bg-amber-600/5 rounded-full blur-[120px] pointer-events-none" />
+         </>
+      )}
 
       <div className="relative z-10 max-w-7xl mx-auto px-4 py-8 flex flex-col min-h-screen">
         {currentView === "home" ? (
-          <div className="flex flex-col items-center justify-center flex-1 space-y-10 py-12">
+          <div className="flex flex-col items-center justify-center flex-1 space-y-10 py-12 relative z-10">
             <div className="text-center space-y-4">
               <div className="mx-auto w-20 h-20 bg-gradient-to-tr from-amber-500 to-amber-600 rounded-2xl flex items-center justify-center text-stone-950 shadow-lg shadow-amber-500/20 mb-8">
                 <Video className="w-10 h-10" />
