@@ -38,12 +38,10 @@ import {
   Film,
   ArrowRight,
   Home,
-  Mic,
-  Camera
+  Mic
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { CollegeMelodyGenerator } from "./utils";
-import { PhotoEditor } from "./PhotoEditor";
 
 interface VideoSlide {
   id: string;
@@ -573,7 +571,7 @@ export default function App() {
 
   // Project Management State
   const [projectName, setProjectName] = useState<string>("My Project");
-  const [currentView, setCurrentView] = useState<"home" | "editor" | "photo_editor">("home");
+  const [currentView, setCurrentView] = useState<"home" | "editor">("home");
   const [availableProjects, setAvailableProjects] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("cinematic_projects_list") || "[]"); } catch { return []; }
   });
@@ -2814,7 +2812,7 @@ export default function App() {
               <p className="text-stone-400 font-mono text-sm max-w-md mx-auto">Create beautiful HTML5 canvas video slideshows with Web Audio integration.</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full max-w-5xl mt-12">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-3xl mt-12">
               <button
                 onClick={() => {
                   setSlides([]);
@@ -2824,29 +2822,14 @@ export default function App() {
                   setExportResolution("1080p");
                   setCurrentView("editor");
                 }}
-                className="flex flex-col items-center justify-center gap-4 p-8 rounded-3xl border-2 border-dashed border-stone-800 bg-stone-900/40 hover:bg-stone-900 hover:border-amber-500/50 transition-all cursor-pointer group h-[280px]"
+                className="flex flex-col items-center justify-center gap-4 p-10 rounded-3xl border-2 border-dashed border-stone-800 bg-stone-900/40 hover:bg-stone-900 hover:border-amber-500/50 transition-all cursor-pointer group"
               >
                 <div className="p-4 bg-stone-950 rounded-2xl group-hover:scale-110 transition-transform shadow-xl">
-                  <Video className="w-8 h-8 text-amber-500" />
+                  <Plus className="w-8 h-8 text-amber-500" />
                 </div>
                 <div className="text-center">
-                  <h3 className="font-bold text-lg text-stone-200">Video Project</h3>
-                  <p className="text-xs text-stone-500 mt-2 font-mono">Create video slideshows</p>
-                </div>
-              </button>
-
-              <button
-                onClick={() => {
-                  setCurrentView("photo_editor");
-                }}
-                className="flex flex-col items-center justify-center gap-4 p-8 rounded-3xl border-2 border-dashed border-stone-800 bg-stone-900/40 hover:bg-stone-900 hover:border-blue-500/50 transition-all cursor-pointer group h-[280px]"
-              >
-                <div className="p-4 bg-stone-950 rounded-2xl group-hover:scale-110 transition-transform shadow-xl">
-                  <Camera className="w-8 h-8 text-blue-500" />
-                </div>
-                <div className="text-center">
-                  <h3 className="font-bold text-lg text-stone-200">Photo Editor</h3>
-                  <p className="text-xs text-stone-500 mt-2 font-mono">Lightroom style editor</p>
+                  <h3 className="font-bold text-lg text-stone-200">Start New Project</h3>
+                  <p className="text-xs text-stone-500 mt-2 font-mono">Blank canvas timeline</p>
                 </div>
               </button>
 
@@ -2881,20 +2864,6 @@ export default function App() {
                   </div>
                 )}
               </div>
-            </div>
-          </div>
-        ) : currentView === "photo_editor" ? (
-          <div className="flex flex-col flex-1 relative w-full -mt-4">
-            <div className="flex mb-4">
-              <button 
-                onClick={() => setCurrentView("home")} 
-                className="text-stone-400 hover:text-white flex items-center gap-2 text-xs font-mono px-3 py-1.5 bg-stone-900 border border-stone-800 rounded-lg hover:bg-stone-800 transition-colors"
-              >
-                <ArrowRight className="w-3.5 h-3.5 rotate-180"/> Back to Home
-              </button>
-            </div>
-            <div className="flex-1 rounded-2xl overflow-hidden border border-stone-800 shadow-2xl">
-              <PhotoEditor />
             </div>
           </div>
         ) : (
