@@ -2157,22 +2157,24 @@ export default function App() {
           dy += parallaxDriftY;
 
           // Ratio calculation for Cover vs Contain without division-by-zero risk
-          const imgRatio = (img.width && img.height) ? (img.width / img.height) : 1;
+          const mediaW = img instanceof HTMLVideoElement ? img.videoWidth : img.width;
+          const mediaH = img instanceof HTMLVideoElement ? img.videoHeight : img.height;
+          const imgRatio = (mediaW && mediaH) ? (mediaW / mediaH) : 1;
           const canvasRatio = canvas.width / canvas.height;
           let baseScale = 1.0;
           const fit = activeSlide.fitMode || "cover";
 
           if (fit === "cover") {
             if (imgRatio > canvasRatio) {
-              baseScale = img.height ? (canvas.height / img.height) : 1;
+              baseScale = mediaH ? (canvas.height / mediaH) : 1;
             } else {
-              baseScale = img.width ? (canvas.width / img.width) : 1;
+              baseScale = mediaW ? (canvas.width / mediaW) : 1;
             }
           } else {
             if (imgRatio > canvasRatio) {
-              baseScale = img.width ? (canvas.width / img.width) : 1;
+              baseScale = mediaW ? (canvas.width / mediaW) : 1;
             } else {
-              baseScale = img.height ? (canvas.height / img.height) : 1;
+              baseScale = mediaH ? (canvas.height / mediaH) : 1;
             }
           }
 
@@ -2180,8 +2182,8 @@ export default function App() {
           baseScale *= (activeSlide.zoomMultiplier || 1.0);
 
           const finalScale = baseScale * transitionScale;
-          const renderW = img.width ? (img.width * finalScale) : canvas.width;
-          const renderH = img.height ? (img.height * finalScale) : canvas.height;
+          const renderW = mediaW ? (mediaW * finalScale) : canvas.width;
+          const renderH = mediaH ? (mediaH * finalScale) : canvas.height;
 
           ctx.save();
           let filterString = "";
