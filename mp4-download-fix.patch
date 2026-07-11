@@ -1,0 +1,189 @@
+diff --git a/package.json b/package.json
+index 55128b8..b365bd0 100644
+--- a/package.json
++++ b/package.json
+@@ -11,6 +11,8 @@
+     "lint": "tsc --noEmit"
+   },
+   "dependencies": {
++    "@ffmpeg/ffmpeg": "^0.12.10",
++    "@ffmpeg/util": "^0.12.1",
+     "@google/genai": "^2.4.0",
+     "@tailwindcss/vite": "^4.1.14",
+     "@vitejs/plugin-react": "^5.0.4",
+diff --git a/src/App.tsx b/src/App.tsx
+index 5995679..3f664c6 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -41,7 +41,7 @@ import {
+   Mic
+ } from "lucide-react";
+ import { motion, AnimatePresence } from "motion/react";
+-import { CollegeMelodyGenerator } from "./utils";
++import { CollegeMelodyGenerator, transcodeWebmToMp4InBrowser } from "./utils";
+ import { Home3DBackground } from "./Home3DBackground";
+ 
+ interface VideoSlide {
+@@ -1955,40 +1955,40 @@ export default function App() {
+           setExportProgress(98);
+           setExportTimeRemaining(Math.max(2, Math.ceil(transcodeOverheadSeconds * 0.4)));
+ 
++          let mp4Blob: Blob | null = null;
++
++          // Primary path: convert entirely in-browser with ffmpeg.wasm.
++          // This needs no backend at all, so it keeps working even if the
++          // server (or its ffmpeg install / disk access) isn't available.
+           try {
+-            // Upload in 5MB chunks to safely bypass ingress proxy request size limits
+-            const CHUNK_SIZE = 5 * 1024 * 1024;
+-            setExportStatusText("Initializing MP4 conversion...");
+-            const startRes = await fetch("/api/upload/start", { method: "POST" });
+-            if (!startRes.ok) throw new Error("Failed to start upload session");
+-            const { uploadId } = await startRes.json();
+-
+-            let uploadedBytes = 0;
+-            for (let i = 0; i < rawRecordedBlob.size; i += CHUNK_SIZE) {
+-              const chunk = rawRecordedBlob.slice(i, i + CHUNK_SIZE);
+-              setExportStatusText(`Uploading video chunk ${Math.round(uploadedBytes / 1024 / 1024)}MB / ${Math.round(rawRecordedBlob.size / 1024 / 1024)}MB...`);
+-              const chunkRes = await fetch(`/api/upload/chunk/${uploadId}`, {
++            setExportStatusText("Loading MP4 converter (first time only)...");
++            mp4Blob = await transcodeWebmToMp4InBrowser(rawRecordedBlob, setExportStatusText);
++          } catch (browserErr: any) {
++            console.error("In-browser MP4 conversion failed, trying server fallback:", browserErr);
++
++            // Secondary path: ask the server to do it, if a backend is reachable.
++            try {
++              setExportStatusText("Converting to MP4 on server (this may take a minute)...");
++              const response = await fetch("/api/convert-to-mp4", {
+                 method: "POST",
+-                headers: { "Content-Type": "application/octet-stream" },
+-                body: chunk
++                headers: { "Content-Type": "video/webm" },
++                body: rawRecordedBlob
+               });
+-              if (!chunkRes.ok) throw new Error("Chunk upload failed");
+-              uploadedBytes += chunk.size;
+-            }
+-
+-            setExportStatusText("Converting to MP4 format (this may take a minute)...");
+-            const response = await fetch(`/api/upload/finish/${uploadId}`, { method: "POST" });
+-
+-            if (!response.ok) {
+-              const errData = await response.json().catch(() => ({}));
+-              throw new Error(errData.error || "Server transcode failed");
++              if (!response.ok) {
++                const errData = await response.json().catch(() => ({}));
++                throw new Error(errData.error || `Server transcode failed (HTTP ${response.status})`);
++              }
++              const serverBlob = await response.blob();
++              mp4Blob = new Blob([serverBlob], { type: "video/mp4" });
++            } catch (serverErr: any) {
++              console.error("Server MP4 fallback also failed:", serverErr);
++              throw new Error(browserErr?.message || serverErr?.message || "MP4 conversion failed");
+             }
++          }
+ 
+-            // Create explicitly typed video/mp4 Blob from response so media players recognize it immediately
+-            const mp4Blob = await response.blob();
+-            const playableMp4Blob = new Blob([mp4Blob], { type: "video/mp4" });
+-            const videoUrl = URL.createObjectURL(playableMp4Blob);
+-
++          try {
++            if (!mp4Blob) throw new Error("MP4 conversion produced no output");
++            const videoUrl = URL.createObjectURL(mp4Blob);
+             const dl = document.createElement("a");
+             dl.href = videoUrl;
+             dl.download = `college_memory_slideshow_${Date.now()}.mp4`;
+@@ -1998,7 +1998,7 @@ export default function App() {
+           } catch (err: any) {
+             console.error("Transcode failed, falling back to WebM download:", err);
+             alert("MP4 conversion failed. Downloading high-quality WebM fallback instead. Error: " + err.message);
+-            
++
+             // Fallback download WebM
+             const videoUrl = URL.createObjectURL(rawRecordedBlob);
+             const dl = document.createElement("a");
+diff --git a/src/utils.ts b/src/utils.ts
+index 6617da0..b25b8c8 100644
+--- a/src/utils.ts
++++ b/src/utils.ts
+@@ -1,3 +1,79 @@
++import { FFmpeg } from "@ffmpeg/ffmpeg";
++import { fetchFile, toBlobURL } from "@ffmpeg/util";
++
++let cachedFfmpeg: FFmpeg | null = null;
++let ffmpegLoadPromise: Promise<FFmpeg> | null = null;
++
++/**
++ * Lazily loads and caches a single ffmpeg.wasm instance. The core/wasm binaries
++ * are fetched from a CDN at runtime (not bundled), so this stays a small,
++ * one-time download the first time someone exports to MP4.
++ */
++async function getFfmpeg(): Promise<FFmpeg> {
++  if (cachedFfmpeg) return cachedFfmpeg;
++  if (ffmpegLoadPromise) return ffmpegLoadPromise;
++
++  ffmpegLoadPromise = (async () => {
++    const ffmpeg = new FFmpeg();
++    const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm";
++    await ffmpeg.load({
++      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
++      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
++    });
++    cachedFfmpeg = ffmpeg;
++    return ffmpeg;
++  })();
++
++  return ffmpegLoadPromise;
++}
++
++/**
++ * Converts a recorded WebM Blob into a widely-compatible MP4 (H.264/AAC) Blob
++ * entirely in the browser using ffmpeg.wasm. This avoids relying on a backend
++ * server (with its own ffmpeg install, disk access, and chunked-upload session
++ * handling), which is what "Failed to start upload session" indicates is broken
++ * or unavailable in the current hosting environment.
++ */
++export async function transcodeWebmToMp4InBrowser(
++  webmBlob: Blob,
++  onProgress?: (statusText: string) => void
++): Promise<Blob> {
++  const ffmpeg = await getFfmpeg();
++
++  if (onProgress) {
++    ffmpeg.on("progress", ({ progress }) => {
++      const pct = Math.max(0, Math.min(100, Math.round(progress * 100)));
++      onProgress(`Converting to MP4 in-browser... ${pct}%`);
++    });
++  }
++
++  const inputName = "input.webm";
++  const outputName = "output.mp4";
++
++  await ffmpeg.writeFile(inputName, await fetchFile(webmBlob));
++
++  await ffmpeg.exec([
++    "-i", inputName,
++    "-map", "0:v",
++    "-map", "0:a?",
++    "-r", "30",
++    "-c:v", "libx264",
++    "-preset", "ultrafast",
++    "-crf", "22",
++    "-pix_fmt", "yuv420p",
++    "-c:a", "aac",
++    "-b:a", "192k",
++    outputName,
++  ]);
++
++  const data = await ffmpeg.readFile(outputName);
++  await ffmpeg.deleteFile(inputName);
++  await ffmpeg.deleteFile(outputName);
++
++  const bytes = data instanceof Uint8Array ? data : new TextEncoder().encode(data as string);
++  return new Blob([bytes], { type: "video/mp4" });
++}
++
+ /**
+  * Slices a portion of an image and returns a base64 encoded data URL.
+  * @param imageSrc The source image data URL or image element

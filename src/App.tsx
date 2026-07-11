@@ -41,7 +41,7 @@ import {
   Mic
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { CollegeMelodyGenerator } from "./utils";
+import { CollegeMelodyGenerator, transcodeWebmToMp4InBrowser } from "./utils";
 import { Home3DBackground } from "./Home3DBackground";
 
 interface VideoSlide {
@@ -1955,40 +1955,40 @@ export default function App() {
           setExportProgress(98);
           setExportTimeRemaining(Math.max(2, Math.ceil(transcodeOverheadSeconds * 0.4)));
 
+          let mp4Blob: Blob | null = null;
+
+          // Primary path: convert entirely in-browser with ffmpeg.wasm.
+          // This needs no backend at all, so it keeps working even if the
+          // server (or its ffmpeg install / disk access) isn't available.
           try {
-            // Upload in 5MB chunks to safely bypass ingress proxy request size limits
-            const CHUNK_SIZE = 5 * 1024 * 1024;
-            setExportStatusText("Initializing MP4 conversion...");
-            const startRes = await fetch("/api/upload/start", { method: "POST" });
-            if (!startRes.ok) throw new Error("Failed to start upload session");
-            const { uploadId } = await startRes.json();
+            setExportStatusText("Loading MP4 converter (first time only)...");
+            mp4Blob = await transcodeWebmToMp4InBrowser(rawRecordedBlob, setExportStatusText);
+          } catch (browserErr: any) {
+            console.error("In-browser MP4 conversion failed, trying server fallback:", browserErr);
 
-            let uploadedBytes = 0;
-            for (let i = 0; i < rawRecordedBlob.size; i += CHUNK_SIZE) {
-              const chunk = rawRecordedBlob.slice(i, i + CHUNK_SIZE);
-              setExportStatusText(`Uploading video chunk ${Math.round(uploadedBytes / 1024 / 1024)}MB / ${Math.round(rawRecordedBlob.size / 1024 / 1024)}MB...`);
-              const chunkRes = await fetch(`/api/upload/chunk/${uploadId}`, {
+            // Secondary path: ask the server to do it, if a backend is reachable.
+            try {
+              setExportStatusText("Converting to MP4 on server (this may take a minute)...");
+              const response = await fetch("/api/convert-to-mp4", {
                 method: "POST",
-                headers: { "Content-Type": "application/octet-stream" },
-                body: chunk
+                headers: { "Content-Type": "video/webm" },
+                body: rawRecordedBlob
               });
-              if (!chunkRes.ok) throw new Error("Chunk upload failed");
-              uploadedBytes += chunk.size;
+              if (!response.ok) {
+                const errData = await response.json().catch(() => ({}));
+                throw new Error(errData.error || `Server transcode failed (HTTP ${response.status})`);
+              }
+              const serverBlob = await response.blob();
+              mp4Blob = new Blob([serverBlob], { type: "video/mp4" });
+            } catch (serverErr: any) {
+              console.error("Server MP4 fallback also failed:", serverErr);
+              throw new Error(browserErr?.message || serverErr?.message || "MP4 conversion failed");
             }
+          }
 
-            setExportStatusText("Converting to MP4 format (this may take a minute)...");
-            const response = await fetch(`/api/upload/finish/${uploadId}`, { method: "POST" });
-
-            if (!response.ok) {
-              const errData = await response.json().catch(() => ({}));
-              throw new Error(errData.error || "Server transcode failed");
-            }
-
-            // Create explicitly typed video/mp4 Blob from response so media players recognize it immediately
-            const mp4Blob = await response.blob();
-            const playableMp4Blob = new Blob([mp4Blob], { type: "video/mp4" });
-            const videoUrl = URL.createObjectURL(playableMp4Blob);
-
+          try {
+            if (!mp4Blob) throw new Error("MP4 conversion produced no output");
+            const videoUrl = URL.createObjectURL(mp4Blob);
             const dl = document.createElement("a");
             dl.href = videoUrl;
             dl.download = `college_memory_slideshow_${Date.now()}.mp4`;
@@ -1998,7 +1998,7 @@ export default function App() {
           } catch (err: any) {
             console.error("Transcode failed, falling back to WebM download:", err);
             alert("MP4 conversion failed. Downloading high-quality WebM fallback instead. Error: " + err.message);
-            
+
             // Fallback download WebM
             const videoUrl = URL.createObjectURL(rawRecordedBlob);
             const dl = document.createElement("a");

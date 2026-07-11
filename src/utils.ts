@@ -1,3 +1,79 @@
+import { FFmpeg } from "@ffmpeg/ffmpeg";
+import { fetchFile, toBlobURL } from "@ffmpeg/util";
+
+let cachedFfmpeg: FFmpeg | null = null;
+let ffmpegLoadPromise: Promise<FFmpeg> | null = null;
+
+/**
+ * Lazily loads and caches a single ffmpeg.wasm instance. The core/wasm binaries
+ * are fetched from a CDN at runtime (not bundled), so this stays a small,
+ * one-time download the first time someone exports to MP4.
+ */
+async function getFfmpeg(): Promise<FFmpeg> {
+  if (cachedFfmpeg) return cachedFfmpeg;
+  if (ffmpegLoadPromise) return ffmpegLoadPromise;
+
+  ffmpegLoadPromise = (async () => {
+    const ffmpeg = new FFmpeg();
+    const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm";
+    await ffmpeg.load({
+      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
+      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
+    });
+    cachedFfmpeg = ffmpeg;
+    return ffmpeg;
+  })();
+
+  return ffmpegLoadPromise;
+}
+
+/**
+ * Converts a recorded WebM Blob into a widely-compatible MP4 (H.264/AAC) Blob
+ * entirely in the browser using ffmpeg.wasm. This avoids relying on a backend
+ * server (with its own ffmpeg install, disk access, and chunked-upload session
+ * handling), which is what "Failed to start upload session" indicates is broken
+ * or unavailable in the current hosting environment.
+ */
+export async function transcodeWebmToMp4InBrowser(
+  webmBlob: Blob,
+  onProgress?: (statusText: string) => void
+): Promise<Blob> {
+  const ffmpeg = await getFfmpeg();
+
+  if (onProgress) {
+    ffmpeg.on("progress", ({ progress }) => {
+      const pct = Math.max(0, Math.min(100, Math.round(progress * 100)));
+      onProgress(`Converting to MP4 in-browser... ${pct}%`);
+    });
+  }
+
+  const inputName = "input.webm";
+  const outputName = "output.mp4";
+
+  await ffmpeg.writeFile(inputName, await fetchFile(webmBlob));
+
+  await ffmpeg.exec([
+    "-i", inputName,
+    "-map", "0:v",
+    "-map", "0:a?",
+    "-r", "30",
+    "-c:v", "libx264",
+    "-preset", "ultrafast",
+    "-crf", "22",
+    "-pix_fmt", "yuv420p",
+    "-c:a", "aac",
+    "-b:a", "192k",
+    outputName,
+  ]);
+
+  const data = await ffmpeg.readFile(outputName);
+  await ffmpeg.deleteFile(inputName);
+  await ffmpeg.deleteFile(outputName);
+
+  const bytes = data instanceof Uint8Array ? data : new TextEncoder().encode(data as string);
+  return new Blob([bytes], { type: "video/mp4" });
+}
+
 /**
  * Slices a portion of an image and returns a base64 encoded data URL.
  * @param imageSrc The source image data URL or image element
