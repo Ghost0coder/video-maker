@@ -1674,6 +1674,28 @@ export default function App() {
     setSlides(prev => prev.map(s => ({ ...s, transition: transitionType })));
   };
 
+  const shuffleCheckedTransitions = () => {
+    if (checkedSlideIds.size === 0) {
+      setPresetFeedback("Please select/check frames to shuffle transitions.");
+      setTimeout(() => setPresetFeedback(null), 3500);
+      return;
+    }
+    const transitions: Array<VideoSlide["transition"]> = [
+      "zoom", "zoomOut", "panLeft", "panRight", "tiltUp", "tiltDown", 
+      "slideUp", "slideLeft", "slideRight", "blurFade", "retroSpin", 
+      "vortex", "glitch", "fadeOnly"
+    ];
+    setSlides(prev => prev.map(s => {
+      if (checkedSlideIds.has(s.id)) {
+        const randomStyle = transitions[Math.floor(Math.random() * transitions.length)];
+        return { ...s, transition: randomStyle };
+      }
+      return s;
+    }));
+    setPresetFeedback(`Shuffled transitions for ${checkedSlideIds.size} frames.`);
+    setTimeout(() => setPresetFeedback(null), 3500);
+  };
+
   const bulkApplyDurations = (sec: number) => {
     setSlides(prev => prev.map(s => ({ ...s, duration: sec })));
   };
@@ -3972,6 +3994,12 @@ export default function App() {
                         </button>
                       ))}
                     </div>
+                    <button
+                      onClick={shuffleCheckedTransitions}
+                      className="w-full mt-2 text-[9px] font-bold px-2 py-1.5 bg-gradient-to-r from-purple-500/20 to-pink-500/20 hover:from-purple-500/30 hover:to-pink-500/30 border border-purple-500/30 hover:border-purple-500/50 rounded text-purple-300 cursor-pointer transition-colors flex justify-center items-center gap-1.5"
+                    >
+                      <Sparkles className="w-3 h-3" /> Shuffle Transitions
+                    </button>
                   </div>
 
                   <div className="bg-stone-950 p-3.5 rounded-2xl border border-stone-800">
