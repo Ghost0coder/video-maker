@@ -61,6 +61,10 @@ interface VideoSlide {
   mediaType?: "image" | "video";
   trimStart?: number;
   trimEnd?: number;
+  cropTop?: number;
+  cropBottom?: number;
+  cropLeft?: number;
+  cropRight?: number;
   volume?: number; // individual slide volume adjustment (0 to 100, default 100)
   filter?: "none" | "grayscale" | "sepia" | "vibrant" | "vintage" | "invert" | "warm" | "cool" | "dramatic" | "cyberpunk" | "technicolor" | "monochrome" | "dream"; // artistic filters
   brightness?: number;
@@ -2167,6 +2171,23 @@ export default function App() {
           const pivotY = (pinPctY / 100 - 0.5) * renderH;
 
           ctx.translate(-pivotX, -pivotY);
+          
+          if (activeSlide.cropTop || activeSlide.cropBottom || activeSlide.cropLeft || activeSlide.cropRight) {
+            const cropL = (activeSlide.cropLeft || 0) / 100 * renderW;
+            const cropR = (activeSlide.cropRight || 0) / 100 * renderW;
+            const cropT = (activeSlide.cropTop || 0) / 100 * renderH;
+            const cropB = (activeSlide.cropBottom || 0) / 100 * renderH;
+            
+            ctx.beginPath();
+            ctx.rect(
+              -renderW / 2 + dx + pivotX + cropL, 
+              -renderH / 2 + dy + pivotY + cropT, 
+              renderW - cropL - cropR, 
+              renderH - cropT - cropB
+            );
+            ctx.clip();
+          }
+
           ctx.drawImage(img, -renderW / 2 + dx + pivotX, -renderH / 2 + dy + pivotY, renderW, renderH);
           ctx.restore();
 
@@ -3392,6 +3413,7 @@ export default function App() {
                             style={{
                               filter: getFilterCss(slides[currentIndex]),
                               transformOrigin: `${slides[currentIndex].anchorX !== undefined ? slides[currentIndex].anchorX : 50}% ${slides[currentIndex].anchorY !== undefined ? slides[currentIndex].anchorY : 50}%`,
+                              clipPath: (slides[currentIndex].cropLeft || slides[currentIndex].cropRight || slides[currentIndex].cropTop || slides[currentIndex].cropBottom) ? `inset(${slides[currentIndex].cropTop || 0}% ${slides[currentIndex].cropRight || 0}% ${slides[currentIndex].cropBottom || 0}% ${slides[currentIndex].cropLeft || 0}%)` : undefined,
                             }}
                             {...getMotionAnimation(slides[currentIndex], slides[currentIndex].duration)}
                           />
@@ -3407,6 +3429,7 @@ export default function App() {
                             style={{
                               filter: getFilterCss(slides[currentIndex]),
                               transformOrigin: `${slides[currentIndex].anchorX !== undefined ? slides[currentIndex].anchorX : 50}% ${slides[currentIndex].anchorY !== undefined ? slides[currentIndex].anchorY : 50}%`,
+                              clipPath: (slides[currentIndex].cropLeft || slides[currentIndex].cropRight || slides[currentIndex].cropTop || slides[currentIndex].cropBottom) ? `inset(${slides[currentIndex].cropTop || 0}% ${slides[currentIndex].cropRight || 0}% ${slides[currentIndex].cropBottom || 0}% ${slides[currentIndex].cropLeft || 0}%)` : undefined,
                             }}
                             {...getMotionAnimation(slides[currentIndex], slides[currentIndex].duration)}
                           />
@@ -4636,6 +4659,81 @@ export default function App() {
                           <span>0% (Mute)</span>
                           <span>50%</span>
                           <span>100% (Full)</span>
+                        </div>
+                      </div>
+                      
+                      {/* Video Cropping (KineMaster Style) */}
+                      <div className="pt-2 border-t border-stone-800/50 mt-2">
+                        <label className="text-[10px] font-mono uppercase text-stone-400 mb-2 flex items-center justify-between">
+                          <span>✂️ Visual Cropping Mask</span>
+                        </label>
+                        <p className="text-[9px] text-stone-500 mb-3 leading-snug">Crop edges to reframe media. Leave at 0% for no crop.</p>
+                        
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                          <div>
+                            <div className="flex justify-between text-[9px] text-stone-400 mb-1">
+                              <span>Left</span>
+                              <span className="text-amber-500">{slides[currentIndex].cropLeft || 0}%</span>
+                            </div>
+                            <input
+                              type="range" min="0" max="50" step="1"
+                              value={slides[currentIndex].cropLeft || 0}
+                              onChange={(e) => {
+                                const updated = [...slides];
+                                updated[currentIndex].cropLeft = Number(e.target.value);
+                                setSlides(updated);
+                              }}
+                              className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-950 rounded-lg appearance-none"
+                            />
+                          </div>
+                          <div>
+                            <div className="flex justify-between text-[9px] text-stone-400 mb-1">
+                              <span>Right</span>
+                              <span className="text-amber-500">{slides[currentIndex].cropRight || 0}%</span>
+                            </div>
+                            <input
+                              type="range" min="0" max="50" step="1"
+                              value={slides[currentIndex].cropRight || 0}
+                              onChange={(e) => {
+                                const updated = [...slides];
+                                updated[currentIndex].cropRight = Number(e.target.value);
+                                setSlides(updated);
+                              }}
+                              className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-950 rounded-lg appearance-none"
+                            />
+                          </div>
+                          <div>
+                            <div className="flex justify-between text-[9px] text-stone-400 mb-1">
+                              <span>Top</span>
+                              <span className="text-amber-500">{slides[currentIndex].cropTop || 0}%</span>
+                            </div>
+                            <input
+                              type="range" min="0" max="50" step="1"
+                              value={slides[currentIndex].cropTop || 0}
+                              onChange={(e) => {
+                                const updated = [...slides];
+                                updated[currentIndex].cropTop = Number(e.target.value);
+                                setSlides(updated);
+                              }}
+                              className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-950 rounded-lg appearance-none"
+                            />
+                          </div>
+                          <div>
+                            <div className="flex justify-between text-[9px] text-stone-400 mb-1">
+                              <span>Bottom</span>
+                              <span className="text-amber-500">{slides[currentIndex].cropBottom || 0}%</span>
+                            </div>
+                            <input
+                              type="range" min="0" max="50" step="1"
+                              value={slides[currentIndex].cropBottom || 0}
+                              onChange={(e) => {
+                                const updated = [...slides];
+                                updated[currentIndex].cropBottom = Number(e.target.value);
+                                setSlides(updated);
+                              }}
+                              className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-950 rounded-lg appearance-none"
+                            />
+                          </div>
                         </div>
                       </div>
                     </div>
