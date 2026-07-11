@@ -171,6 +171,57 @@ app.post("/api/generate-captions", async (req, res) => {
   }
 });
 
+// Chunked Upload API to bypass proxy request limits for large videos
+const uploads = new Map<string, { path: string; lastActivity: number }>();
+
+app.post("/api/upload/start", (req, res) => {
+  const uploadId = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+  const tempWebmPath = path.join(os.tmpdir(), `upload_${uploadId}.webm`);
+  fs.writeFileSync(tempWebmPath, Buffer.alloc(0));
+  uploads.set(uploadId, { path: tempWebmPath, lastActivity: Date.now() });
+  res.json({ uploadId });
+});
+
+app.post("/api/upload/chunk/:id", express.raw({ type: "*/*", limit: "50mb" }), (req, res) => {
+  try {
+    const upload = uploads.get(req.params.id);
+    if (!upload) return res.status(404).json({ error: "Upload session not found" });
+    
+    upload.lastActivity = Date.now();
+    fs.appendFileSync(upload.path, req.body);
+    res.json({ ok: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to process chunk" });
+  }
+});
+
+app.post("/api/upload/finish/:id", (req, res) => {
+  try {
+    const upload = uploads.get(req.params.id);
+    if (!upload) return res.status(404).json({ error: "Upload session not found" });
+    
+    uploads.delete(req.params.id);
+    const tempWebmPath = upload.path;
+    const tempMp4Path = path.join(os.tmpdir(), `output_${req.params.id}.mp4`);
+    
+    const ffmpegCmd = `ffmpeg -y -i "${tempWebmPath}" -map 0:v -map 0:a? -c:v libx264 -preset ultrafast -crf 22 -pix_fmt yuv420p -c:a aac -b:a 192k "${tempMp4Path}"`;
+    
+    exec(ffmpegCmd, { maxBuffer: 1024 * 1024 * 100 }, (execErr, stdout, stderr) => {
+      fs.unlink(tempWebmPath, () => {});
+      if (execErr) {
+        console.error("FFmpeg chunked conversion failed:", execErr);
+        console.error("FFmpeg details stderr:", stderr);
+        return res.status(500).json({ error: "FFmpeg transcode failed: " + execErr.message });
+      }
+      res.sendFile(tempMp4Path, () => {
+        fs.unlink(tempMp4Path, () => {});
+      });
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to finish upload" });
+  }
+});
+
 // High-Fidelity WebM to MP4 transcode API via server-side FFmpeg
 app.post("/api/convert-to-mp4", express.raw({ type: (req) => req.headers["content-type"]?.includes("video") || false, limit: "2000mb" }), (req, res) => {
   try {

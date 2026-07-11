@@ -1733,21 +1733,36 @@ export default function App() {
     setExportTimeRemaining(initialEstimatedSeconds);
 
     try {
-      setExportStatusText("Pre-loading slideshow images...");
-      const loadedImages: HTMLImageElement[] = [];
+      setExportStatusText("Pre-loading slideshow media...");
+      const loadedImages: (HTMLImageElement | HTMLVideoElement)[] = [];
       for (let i = 0; i < slides.length; i++) {
         const activeSlide = slides[i];
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-        await new Promise<void>((resolve) => {
-          img.onload = () => resolve();
-          img.onerror = () => {
-            console.warn(`Failed to preload image: ${activeSlide.url}`);
-            resolve();
-          };
-          img.src = activeSlide.url;
-        });
-        loadedImages.push(img);
+        if (activeSlide.mediaType === "video") {
+          const vid = document.createElement("video");
+          vid.crossOrigin = "anonymous";
+          vid.muted = true;
+          vid.playsInline = true;
+          vid.preload = "auto";
+          await new Promise<void>((resolve) => {
+            vid.onloadeddata = () => resolve();
+            vid.onerror = () => resolve();
+            vid.src = activeSlide.url;
+            vid.load();
+          });
+          loadedImages.push(vid);
+        } else {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          await new Promise<void>((resolve) => {
+            img.onload = () => resolve();
+            img.onerror = () => {
+              console.warn(`Failed to preload image: ${activeSlide.url}`);
+              resolve();
+            };
+            img.src = activeSlide.url;
+          });
+          loadedImages.push(img);
+        }
       }
 
       setExportStatusText("Compiling frames...");
@@ -1941,13 +1956,28 @@ export default function App() {
           setExportTimeRemaining(Math.max(2, Math.ceil(transcodeOverheadSeconds * 0.4)));
 
           try {
-            const response = await fetch("/api/convert-to-mp4", {
-              method: "POST",
-              headers: {
-                "Content-Type": "video/webm",
-              },
-              body: rawRecordedBlob,
-            });
+            // Upload in 5MB chunks to safely bypass ingress proxy request size limits
+            const CHUNK_SIZE = 5 * 1024 * 1024;
+            setExportStatusText("Initializing MP4 conversion...");
+            const startRes = await fetch("/api/upload/start", { method: "POST" });
+            if (!startRes.ok) throw new Error("Failed to start upload session");
+            const { uploadId } = await startRes.json();
+
+            let uploadedBytes = 0;
+            for (let i = 0; i < rawRecordedBlob.size; i += CHUNK_SIZE) {
+              const chunk = rawRecordedBlob.slice(i, i + CHUNK_SIZE);
+              setExportStatusText(`Uploading video chunk ${Math.round(uploadedBytes / 1024 / 1024)}MB / ${Math.round(rawRecordedBlob.size / 1024 / 1024)}MB...`);
+              const chunkRes = await fetch(`/api/upload/chunk/${uploadId}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/octet-stream" },
+                body: chunk
+              });
+              if (!chunkRes.ok) throw new Error("Chunk upload failed");
+              uploadedBytes += chunk.size;
+            }
+
+            setExportStatusText("Converting to MP4 format (this may take a minute)...");
+            const response = await fetch(`/api/upload/finish/${uploadId}`, { method: "POST" });
 
             if (!response.ok) {
               const errData = await response.json().catch(() => ({}));
@@ -2001,6 +2031,8 @@ export default function App() {
       let currentFrame = 0;
       const startTime = Date.now();
       let slideIndex = 0;
+      const totalDurationMs = slides.reduce((acc, s) => acc + (s.duration || 3) * 1000, 0);
+
       const compileNextSlide = async () => {
         if (slideIndex >= slides.length) {
           recorder.stop();
@@ -2009,12 +2041,26 @@ export default function App() {
 
         const activeSlide = slides[slideIndex];
         const img = loadedImages[slideIndex];
+        const slideDurationMs = (activeSlide.duration || 3) * 1000;
+        const slideStartTime = Date.now();
 
-        const totalFrames = Math.round((activeSlide.duration || 3) * 30); // 30 FPS
+        if (img instanceof HTMLVideoElement) {
+          img.currentTime = activeSlide.trimStart || 0;
+          img.play().catch(() => {});
+        }
 
-        for (let f = 0; f < totalFrames; f++) {
-          const frameStart = performance.now();
-          const ratio = f / totalFrames; // Current slide transition percentage (0 to 1)
+        const renderFrame = () => {
+          const slideElapsed = Date.now() - slideStartTime;
+          const ratio = Math.min(1.0, slideElapsed / slideDurationMs);
+
+          if (ratio >= 1.0) {
+            if (img instanceof HTMLVideoElement) {
+              img.pause();
+            }
+            slideIndex++;
+            compileNextSlide();
+            return;
+          }
 
           // Background deep cinematic wash
           ctx.fillStyle = "#090504";
@@ -2558,41 +2604,23 @@ export default function App() {
             ctx.restore();
           }
 
-          // Frame timeline progress track rendering
-          ctx.fillStyle = "rgba(245, 158, 11, 0.9)"; // amber-500
-          ctx.fillRect(0, canvas.height - 6, canvas.width * ratio, 6);
-
-          // Self-correcting timer delay calculation to prevent setTimeout drifts
-          const nextTargetTimeMs = ((currentFrame + 1) / 30) * 1000;
-          const currentElapsed = Date.now() - startTime;
-          const targetDelay = nextTargetTimeMs - currentElapsed;
-          await new Promise((r) => setTimeout(r, Math.max(1, targetDelay)));
-
-          // Increment frame counter
-          currentFrame++;
-
-          // Calculate aggregate progress percentage across total slides based on actual frames
-          const overallProgress = Math.min(97, Math.round((currentFrame / totalFramesToRender) * 100));
+          const elapsedMs = Date.now() - startTime;
+          const overallProgress = Math.min(97, Math.round((elapsedMs / totalDurationMs) * 100));
           setExportProgress(overallProgress);
 
-          // Dynamically compute the estimated remaining seconds
-          const elapsedMs = Date.now() - startTime;
-          const measuredMsPerFrame = currentFrame > 5 ? (elapsedMs / currentFrame) : estimatedMsPerFrame;
-          // Smooth the reading with a weighted average
-          const averageMsPerFrame = currentFrame > 15 ? (measuredMsPerFrame * 0.8 + estimatedMsPerFrame * 0.2) : measuredMsPerFrame;
-          
-          const remainingFrames = totalFramesToRender - currentFrame;
-          let remainingSeconds = Math.ceil((remainingFrames * averageMsPerFrame) / 1000);
+          let remainingSeconds = Math.max(0, Math.ceil((totalDurationMs - elapsedMs) / 1000));
 
           if (exportFormat === "mp4") {
-            const remainingTranscodeOverhead = Math.ceil(transcodeOverheadSeconds * (1 - (currentFrame / totalFramesToRender) * 0.5));
+            const overallRatio = elapsedMs / totalDurationMs;
+            const remainingTranscodeOverhead = Math.ceil(transcodeOverheadSeconds * (1 - overallRatio * 0.5));
             remainingSeconds += Math.max(2, remainingTranscodeOverhead);
           }
           setExportTimeRemaining(Math.max(0, remainingSeconds));
-        }
 
-        slideIndex++;
-        compileNextSlide();
+          requestAnimationFrame(renderFrame);
+        };
+
+        requestAnimationFrame(renderFrame);
       };
 
       compileNextSlide();
