@@ -2031,7 +2031,9 @@ export default function App() {
       let currentFrame = 0;
       const startTime = Date.now();
       let slideIndex = 0;
-      const totalDurationMs = slides.reduce((acc, s) => acc + (s.duration || 3) * 1000, 0);
+      
+      // Calculate total frames for estimation
+      const totalFramesToRender = slides.reduce((acc, s) => acc + Math.round((s.duration || 3) * 30), 0);
 
       const compileNextSlide = async () => {
         if (slideIndex >= slides.length) {
@@ -2041,26 +2043,16 @@ export default function App() {
 
         const activeSlide = slides[slideIndex];
         const img = loadedImages[slideIndex];
-        const slideDurationMs = (activeSlide.duration || 3) * 1000;
-        const slideStartTime = Date.now();
 
         if (img instanceof HTMLVideoElement) {
           img.currentTime = activeSlide.trimStart || 0;
           img.play().catch(() => {});
         }
 
-        const renderFrame = () => {
-          const slideElapsed = Date.now() - slideStartTime;
-          const ratio = Math.min(1.0, slideElapsed / slideDurationMs);
+        const totalFrames = Math.round((activeSlide.duration || 3) * 30); // 30 FPS
 
-          if (ratio >= 1.0) {
-            if (img instanceof HTMLVideoElement) {
-              img.pause();
-            }
-            slideIndex++;
-            compileNextSlide();
-            return;
-          }
+        for (let f = 0; f < totalFrames; f++) {
+          const ratio = f / totalFrames;
 
           // Background deep cinematic wash
           ctx.fillStyle = "#090504";
@@ -2606,23 +2598,38 @@ export default function App() {
             ctx.restore();
           }
 
+          // Self-correcting timer delay calculation to prevent setTimeout drifts
+          const nextTargetTimeMs = ((currentFrame + 1) / 30) * 1000;
+          const currentElapsed = Date.now() - startTime;
+          const targetDelay = nextTargetTimeMs - currentElapsed;
+          await new Promise((r) => setTimeout(r, Math.max(1, targetDelay)));
+
+          // Increment frame counter
+          currentFrame++;
+
           const elapsedMs = Date.now() - startTime;
-          const overallProgress = Math.min(97, Math.round((elapsedMs / totalDurationMs) * 100));
+          const overallProgress = Math.min(97, Math.round((currentFrame / totalFramesToRender) * 100));
           setExportProgress(overallProgress);
 
-          let remainingSeconds = Math.max(0, Math.ceil((totalDurationMs - elapsedMs) / 1000));
+          // Dynamically compute the estimated remaining seconds
+          const measuredMsPerFrame = currentFrame > 5 ? (elapsedMs / currentFrame) : estimatedMsPerFrame;
+          const averageMsPerFrame = currentFrame > 15 ? (measuredMsPerFrame * 0.8 + estimatedMsPerFrame * 0.2) : measuredMsPerFrame;
+          const remainingFrames = totalFramesToRender - currentFrame;
+          let remainingSeconds = Math.ceil((remainingFrames * averageMsPerFrame) / 1000);
 
           if (exportFormat === "mp4") {
-            const overallRatio = elapsedMs / totalDurationMs;
+            const overallRatio = currentFrame / totalFramesToRender;
             const remainingTranscodeOverhead = Math.ceil(transcodeOverheadSeconds * (1 - overallRatio * 0.5));
             remainingSeconds += Math.max(2, remainingTranscodeOverhead);
           }
           setExportTimeRemaining(Math.max(0, remainingSeconds));
+        }
 
-          requestAnimationFrame(renderFrame);
-        };
-
-        requestAnimationFrame(renderFrame);
+        if (img instanceof HTMLVideoElement) {
+          img.pause();
+        }
+        slideIndex++;
+        compileNextSlide();
       };
 
       compileNextSlide();
