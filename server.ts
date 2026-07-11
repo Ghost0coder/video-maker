@@ -204,7 +204,8 @@ app.post("/api/upload/finish/:id", (req, res) => {
     const tempWebmPath = upload.path;
     const tempMp4Path = path.join(os.tmpdir(), `output_${req.params.id}.mp4`);
     
-    const ffmpegCmd = `ffmpeg -y -i "${tempWebmPath}" -map 0:v -map 0:a? -c:v libx264 -preset ultrafast -crf 22 -pix_fmt yuv420p -c:a aac -b:a 192k "${tempMp4Path}"`;
+    // Add -async 1 and -vsync 1 to fix stuck frames and missing audio sync issues from MediaRecorder WebMs
+    const ffmpegCmd = `ffmpeg -y -i "${tempWebmPath}" -map 0:v -map 0:a? -async 1 -vsync 1 -r 30 -c:v libx264 -preset ultrafast -crf 22 -pix_fmt yuv420p -c:a aac -b:a 192k "${tempMp4Path}"`;
     
     exec(ffmpegCmd, { maxBuffer: 1024 * 1024 * 100 }, (execErr, stdout, stderr) => {
       fs.unlink(tempWebmPath, () => {});

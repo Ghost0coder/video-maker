@@ -3767,15 +3767,8 @@ export default function App() {
                   </AnimatePresence>
                 </div>
 
-                {/* Timeline Progress Bar indicator */}
+                {/* Timeline Progress Bar indicator - removed by user request */}
                 <div className="mt-4 space-y-4">
-                  <div className="h-1.5 w-full bg-stone-950 rounded-full overflow-hidden border border-stone-800">
-                    <div
-                      style={{ width: `${progress}%` }}
-                      className="h-full bg-amber-500 rounded-full transition-all duration-100"
-                    />
-                  </div>
-
                   {/* Primary Video Player Buttons */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between pt-1 gap-4">
                     <div className="flex items-center gap-3">
