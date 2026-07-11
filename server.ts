@@ -172,7 +172,7 @@ app.post("/api/generate-captions", async (req, res) => {
 });
 
 // High-Fidelity WebM to MP4 transcode API via server-side FFmpeg
-app.post("/api/convert-to-mp4", express.raw({ type: (req) => req.headers["content-type"]?.includes("video") || false, limit: "150mb" }), (req, res) => {
+app.post("/api/convert-to-mp4", express.raw({ type: (req) => req.headers["content-type"]?.includes("video") || false, limit: "2000mb" }), (req, res) => {
   try {
     const webmBuffer = req.body;
     if (!webmBuffer || !Buffer.isBuffer(webmBuffer) || webmBuffer.length === 0) {
@@ -193,7 +193,7 @@ app.post("/api/convert-to-mp4", express.raw({ type: (req) => req.headers["conten
       // We explicitly map the optional audio track with -map 0:a? and transcode it to standard AAC with -c:a aac
       const ffmpegCmd = `ffmpeg -y -i "${tempWebmPath}" -map 0:v -map 0:a? -c:v libx264 -preset ultrafast -crf 22 -pix_fmt yuv420p -c:a aac -b:a 192k "${tempMp4Path}"`;
 
-      exec(ffmpegCmd, (execErr, stdout, stderr) => {
+      exec(ffmpegCmd, { maxBuffer: 1024 * 1024 * 100 }, (execErr, stdout, stderr) => {
         // Safe clean up of raw source file
         fs.unlink(tempWebmPath, () => {});
 
