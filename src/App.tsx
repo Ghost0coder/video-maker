@@ -1897,10 +1897,11 @@ export default function App() {
       stream.getVideoTracks().forEach(track => combinedStream.addTrack(track));
 
       // Setup audio capture based on active soundtrack type
+      let exportDestNode: MediaStreamAudioDestinationNode | null = null;
       if (activeSoundtrackType === "custom" && uploadedAudioSrc) {
         try {
           audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-          const destNode = audioCtx.createMediaStreamDestination();
+          exportDestNode = audioCtx.createMediaStreamDestination();
           
           // Create a dedicated, temporary HTMLAudioElement for export to avoid CORS issues,
           // "already connected" exceptions, and playback state interference.
@@ -1913,9 +1914,9 @@ export default function App() {
           
           const sourceNode = audioCtx.createMediaElementSource(tempAudio);
           sourceNode.connect(audioCtx.destination);
-          sourceNode.connect(destNode);
+          sourceNode.connect(exportDestNode);
           
-          destNode.stream.getAudioTracks().forEach(track => combinedStream.addTrack(track));
+          exportDestNode.stream.getAudioTracks().forEach(track => combinedStream.addTrack(track));
           
           if (audioCtx.state === "suspended") {
             await audioCtx.resume();
@@ -1927,14 +1928,14 @@ export default function App() {
       } else if (activeSoundtrackType === "synth") {
         try {
           audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-          const destNode = audioCtx.createMediaStreamDestination();
+          exportDestNode = audioCtx.createMediaStreamDestination();
           
           if (audioCtx.state === "suspended") {
             await audioCtx.resume();
           }
           
-          synthesizer.start(destNode, audioCtx);
-          destNode.stream.getAudioTracks().forEach(track => combinedStream.addTrack(track));
+          synthesizer.start(exportDestNode, audioCtx);
+          exportDestNode.stream.getAudioTracks().forEach(track => combinedStream.addTrack(track));
         } catch (err) {
           console.error("Failed to route synthesizer to destination stream", err);
           synthesizer.start();
@@ -2076,10 +2077,8 @@ export default function App() {
       await new Promise((r) => requestAnimationFrame(r));
       await new Promise((r) => setTimeout(r, 100));
 
-      recorder.start();
-
       let currentFrame = 0;
-      const startTime = Date.now();
+      let startTime = Date.now();
       let slideIndex = 0;
       
       // Calculate total frames for estimation
@@ -2651,6 +2650,23 @@ export default function App() {
           // Force browser composition of the canvas frame before calculating delay
           // This prevents skipped/missing transitions where the JS loop runs faster than the compositor
           await new Promise((r) => requestAnimationFrame(r));
+
+          // Sync the clock to the exact moment the first frame is fully painted.
+          // This ensures transition curves (e.g. ratio = 0.0) don't jump ahead due to initial startup lag.
+          if (slideIndex === 0 && f === 0) {
+            // Restart audio to perfectly sync with the first recorded frame
+            if (activeSoundtrackType === "custom" && activeAudioElement) {
+              activeAudioElement.currentTime = 0;
+            } else if (activeSoundtrackType === "synth") {
+              synthesizer.stop();
+              if (audioCtx && exportDestNode) {
+                synthesizer.start(exportDestNode, audioCtx);
+              }
+            }
+            
+            recorder.start();
+            startTime = Date.now();
+          }
 
           // Self-correcting timer delay calculation to prevent setTimeout drifts
           const nextTargetTimeMs = ((currentFrame + 1) / 30) * 1000;
