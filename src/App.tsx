@@ -632,6 +632,18 @@ export default function App() {
     setPresetFeedback(`Project "${name}" deleted.`);
     setTimeout(() => setPresetFeedback(null), 3000);
   };
+
+  const deleteAllProjects = () => {
+    if (!window.confirm("Are you sure you want to delete ALL projects? This cannot be undone.")) return;
+    availableProjects.forEach(name => {
+      localStorage.removeItem(`cinematic_project_${name}`);
+    });
+    localStorage.removeItem("cinematic_projects_list");
+    setAvailableProjects([]);
+    setProjectName("My Project");
+    setPresetFeedback("All projects deleted.");
+    setTimeout(() => setPresetFeedback(null), 3000);
+  };
   
   // Video Global Aspect Ratio State
   const [videoAspectRatio, setVideoAspectRatio] = useState<"16:9" | "9:16" | "1:1" | "4:3">("16:9");
@@ -2965,9 +2977,20 @@ export default function App() {
               </button>
 
               <div className="flex flex-col gap-4 bg-stone-900/40 p-6 rounded-3xl border border-stone-800 h-[280px]">
-                <div className="flex items-center gap-2 mb-1 pl-2 shrink-0">
-                  <Library className="w-4 h-4 text-stone-500" />
-                  <h3 className="font-mono text-xs uppercase tracking-widest text-stone-500">Recent Projects</h3>
+                <div className="flex items-center justify-between mb-1 pl-2 shrink-0">
+                  <div className="flex items-center gap-2">
+                    <Library className="w-4 h-4 text-stone-500" />
+                    <h3 className="font-mono text-xs uppercase tracking-widest text-stone-500">Recent Projects</h3>
+                  </div>
+                  {availableProjects.length > 0 && (
+                    <button 
+                      onClick={deleteAllProjects}
+                      className="text-[10px] uppercase font-bold text-rose-500 hover:text-rose-400 font-mono flex items-center gap-1 transition-colors cursor-pointer bg-transparent border-none"
+                      title="Delete all projects"
+                    >
+                      <Trash2 className="w-3 h-3" /> Delete All
+                    </button>
+                  )}
                 </div>
                 {availableProjects.length === 0 ? (
                   <div className="flex-1 flex flex-col items-center justify-center p-6 text-center border border-stone-800/50 rounded-2xl bg-stone-900/30 text-stone-500 text-sm italic">
