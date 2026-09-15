@@ -41,7 +41,7 @@ import {
   Mic
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { CollegeMelodyGenerator, transcodeWebmToMp4InBrowser } from "./utils";
+import { CollegeMelodyGenerator } from "./utils";
 import { Home3DBackground } from "./Home3DBackground";
 
 interface VideoSlide {
@@ -617,6 +617,20 @@ export default function App() {
         console.error("Failed to load project", e);
       }
     }
+  };
+
+  const deleteProject = (name: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm(`Are you sure you want to delete the project "${name}"?`)) return;
+    localStorage.removeItem(`cinematic_project_${name}`);
+    const updated = availableProjects.filter(p => p !== name);
+    setAvailableProjects(updated);
+    localStorage.setItem("cinematic_projects_list", JSON.stringify(updated));
+    if (projectName === name) {
+      setProjectName("My Project");
+    }
+    setPresetFeedback(`Project "${name}" deleted.`);
+    setTimeout(() => setPresetFeedback(null), 3000);
   };
   
   // Video Global Aspect Ratio State
@@ -1673,30 +1687,44 @@ export default function App() {
     }
   };
 
-  // Bulk Apply Settings
   const bulkApplyTransitions = (transitionType: VideoSlide["transition"]) => {
-    setSlides(prev => prev.map(s => ({ ...s, transition: transitionType })));
+    if (checkedSlideIds.size === 0) {
+      setSlides(prev => prev.map(s => ({ ...s, transition: transitionType })));
+      setPresetFeedback(`Applied transition to all ${slides.length} frames.`);
+    } else {
+      setSlides(prev => prev.map(s => {
+        if (checkedSlideIds.has(s.id)) {
+          return { ...s, transition: transitionType };
+        }
+        return s;
+      }));
+      setPresetFeedback(`Applied transition to ${checkedSlideIds.size} frames.`);
+    }
+    setTimeout(() => setPresetFeedback(null), 3500);
   };
 
   const shuffleCheckedTransitions = () => {
-    if (checkedSlideIds.size === 0) {
-      setPresetFeedback("Please select/check frames to shuffle transitions.");
-      setTimeout(() => setPresetFeedback(null), 3500);
-      return;
-    }
     const transitions: Array<VideoSlide["transition"]> = [
       "zoom", "zoomOut", "panLeft", "panRight", "tiltUp", "tiltDown", 
       "slideUp", "slideLeft", "slideRight", "blurFade", "retroSpin", 
       "vortex", "glitch", "fadeOnly"
     ];
-    setSlides(prev => prev.map(s => {
-      if (checkedSlideIds.has(s.id)) {
+    if (checkedSlideIds.size === 0) {
+      setSlides(prev => prev.map(s => {
         const randomStyle = transitions[Math.floor(Math.random() * transitions.length)];
         return { ...s, transition: randomStyle };
-      }
-      return s;
-    }));
-    setPresetFeedback(`Shuffled transitions for ${checkedSlideIds.size} frames.`);
+      }));
+      setPresetFeedback(`Shuffled transitions for all ${slides.length} frames.`);
+    } else {
+      setSlides(prev => prev.map(s => {
+        if (checkedSlideIds.has(s.id)) {
+          const randomStyle = transitions[Math.floor(Math.random() * transitions.length)];
+          return { ...s, transition: randomStyle };
+        }
+        return s;
+      }));
+      setPresetFeedback(`Shuffled transitions for ${checkedSlideIds.size} frames.`);
+    }
     setTimeout(() => setPresetFeedback(null), 3500);
   };
 
@@ -1955,40 +1983,44 @@ export default function App() {
           setExportProgress(98);
           setExportTimeRemaining(Math.max(2, Math.ceil(transcodeOverheadSeconds * 0.4)));
 
-          let mp4Blob: Blob | null = null;
-
-          // Primary path: convert entirely in-browser with ffmpeg.wasm.
-          // This needs no backend at all, so it keeps working even if the
-          // server (or its ffmpeg install / disk access) isn't available.
           try {
-            setExportStatusText("Loading MP4 converter (first time only)...");
-            mp4Blob = await transcodeWebmToMp4InBrowser(rawRecordedBlob, setExportStatusText);
-          } catch (browserErr: any) {
-            console.error("In-browser MP4 conversion failed, trying server fallback:", browserErr);
+            // Upload in 5MB chunks to safely bypass ingress proxy request size limits
+            const CHUNK_SIZE = 5 * 1024 * 1024;
+            setExportStatusText("Initializing MP4 conversion...");
+            const startRes = await fetch("/api/upload/start", { 
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({})
+            });
+            if (!startRes.ok) throw new Error("Failed to start upload session");
+            const { uploadId } = await startRes.json();
 
-            // Secondary path: ask the server to do it, if a backend is reachable.
-            try {
-              setExportStatusText("Converting to MP4 on server (this may take a minute)...");
-              const response = await fetch("/api/convert-to-mp4", {
+            let uploadedBytes = 0;
+            for (let i = 0; i < rawRecordedBlob.size; i += CHUNK_SIZE) {
+              const chunk = rawRecordedBlob.slice(i, i + CHUNK_SIZE);
+              setExportStatusText(`Uploading video chunk ${Math.round(uploadedBytes / 1024 / 1024)}MB / ${Math.round(rawRecordedBlob.size / 1024 / 1024)}MB...`);
+              const chunkRes = await fetch(`/api/upload/chunk/${uploadId}`, {
                 method: "POST",
-                headers: { "Content-Type": "video/webm" },
-                body: rawRecordedBlob
+                headers: { "Content-Type": "application/octet-stream" },
+                body: chunk
               });
-              if (!response.ok) {
-                const errData = await response.json().catch(() => ({}));
-                throw new Error(errData.error || `Server transcode failed (HTTP ${response.status})`);
-              }
-              const serverBlob = await response.blob();
-              mp4Blob = new Blob([serverBlob], { type: "video/mp4" });
-            } catch (serverErr: any) {
-              console.error("Server MP4 fallback also failed:", serverErr);
-              throw new Error(browserErr?.message || serverErr?.message || "MP4 conversion failed");
+              if (!chunkRes.ok) throw new Error("Chunk upload failed");
+              uploadedBytes += chunk.size;
             }
-          }
 
-          try {
-            if (!mp4Blob) throw new Error("MP4 conversion produced no output");
-            const videoUrl = URL.createObjectURL(mp4Blob);
+            setExportStatusText("Converting to MP4 format (this may take a minute)...");
+            const response = await fetch(`/api/upload/finish/${uploadId}`, { method: "POST" });
+
+            if (!response.ok) {
+              const errData = await response.json().catch(() => ({}));
+              throw new Error(errData.error || "Server transcode failed");
+            }
+
+            // Create explicitly typed video/mp4 Blob from response so media players recognize it immediately
+            const mp4Blob = await response.blob();
+            const playableMp4Blob = new Blob([mp4Blob], { type: "video/mp4" });
+            const videoUrl = URL.createObjectURL(playableMp4Blob);
+
             const dl = document.createElement("a");
             dl.href = videoUrl;
             dl.download = `college_memory_slideshow_${Date.now()}.mp4`;
@@ -1998,7 +2030,7 @@ export default function App() {
           } catch (err: any) {
             console.error("Transcode failed, falling back to WebM download:", err);
             alert("MP4 conversion failed. Downloading high-quality WebM fallback instead. Error: " + err.message);
-
+            
             // Fallback download WebM
             const videoUrl = URL.createObjectURL(rawRecordedBlob);
             const dl = document.createElement("a");
@@ -2025,6 +2057,12 @@ export default function App() {
         setExportStatusText("");
         setExportProgress(100);
       };
+
+      // Draw an initial frame to force the compositor to wake up the canvas
+      ctx.fillStyle = "#090504";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await new Promise((r) => requestAnimationFrame(r));
+      await new Promise((r) => setTimeout(r, 100));
 
       recorder.start();
 
@@ -2598,11 +2636,17 @@ export default function App() {
             ctx.restore();
           }
 
+          // Force browser composition of the canvas frame before calculating delay
+          // This prevents skipped/missing transitions where the JS loop runs faster than the compositor
+          await new Promise((r) => requestAnimationFrame(r));
+
           // Self-correcting timer delay calculation to prevent setTimeout drifts
           const nextTargetTimeMs = ((currentFrame + 1) / 30) * 1000;
           const currentElapsed = Date.now() - startTime;
           const targetDelay = nextTargetTimeMs - currentElapsed;
-          await new Promise((r) => setTimeout(r, Math.max(1, targetDelay)));
+          if (targetDelay > 0) {
+            await new Promise((r) => setTimeout(r, targetDelay));
+          }
 
           // Increment frame counter
           currentFrame++;
@@ -2933,20 +2977,28 @@ export default function App() {
                 ) : (
                   <div className="flex-1 space-y-2 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-stone-800">
                     {availableProjects.map(proj => (
-                      <button
-                        key={proj}
-                        onClick={() => {
-                          loadProject(proj);
-                          setCurrentView("editor");
-                        }}
-                        className="w-full flex items-center justify-between p-4 rounded-2xl border border-stone-800 bg-stone-950 hover:border-amber-500/30 transition-all cursor-pointer text-left group shrink-0"
-                      >
-                        <div className="flex items-center gap-3">
-                          <Film className="w-5 h-5 text-stone-500 group-hover:text-amber-500 transition-colors" />
-                          <span className="font-bold text-stone-300 group-hover:text-stone-100 truncate max-w-[150px]">{proj}</span>
-                        </div>
-                        <ArrowRight className="w-4 h-4 text-stone-600 group-hover:text-amber-500 transition-colors" />
-                      </button>
+                      <div key={proj} className="flex w-full items-center gap-2">
+                        <button
+                          onClick={() => {
+                            loadProject(proj);
+                            setCurrentView("editor");
+                          }}
+                          className="flex-1 flex items-center justify-between p-4 rounded-2xl border border-stone-800 bg-stone-950 hover:border-amber-500/30 transition-all cursor-pointer text-left group shrink-0"
+                        >
+                          <div className="flex items-center gap-3">
+                            <Film className="w-5 h-5 text-stone-500 group-hover:text-amber-500 transition-colors" />
+                            <span className="font-bold text-stone-300 group-hover:text-stone-100 truncate max-w-[130px]">{proj}</span>
+                          </div>
+                          <ArrowRight className="w-4 h-4 text-stone-600 group-hover:text-amber-500 transition-colors" />
+                        </button>
+                        <button 
+                          onClick={(e) => deleteProject(proj, e)}
+                          className="p-4 flex-shrink-0 rounded-2xl border border-stone-800 bg-stone-950 hover:bg-rose-500/10 hover:border-rose-500/30 transition-all cursor-pointer group"
+                          title="Delete Project"
+                        >
+                          <Trash2 className="w-5 h-5 text-stone-500 group-hover:text-rose-500 transition-colors" />
+                        </button>
+                      </div>
                     ))}
                   </div>
                 )}
