@@ -150,6 +150,9 @@ export class CollegeMelodyGenerator {
     if (this.isPlaying) return;
     try {
       this.ctx = customCtx || new (window.AudioContext || (window as any).webkitAudioContext)();
+      if (this.ctx.state === "suspended") {
+        this.ctx.resume().catch(() => {});
+      }
       this.isPlaying = true;
       if (customDestNode) {
         this.destinationNode = customDestNode;

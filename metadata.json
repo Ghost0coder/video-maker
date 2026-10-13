@@ -1,6 +1,6 @@
 {
-  "name": "Collage Video Maker",
-  "description": "Transform photo collages into dynamic cinematic video slideshows with AI slicing, animated transitions, customizable background music, and direct video export.",
+  "name": "AI Film Breakdown",
+  "description": "Cinematic cyberpunk HUD dashboard explaining how an AI-generated short film was made with live timecode sync, shot breakdown, asset tracking, and production pipeline.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

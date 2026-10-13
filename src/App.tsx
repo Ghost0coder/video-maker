@@ -1,6327 +1,2637 @@
-import React, { useState, useRef, useEffect, useCallback, ChangeEvent, DragEvent } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
-  Upload,
   Play,
   Pause,
-  Download,
-  RotateCcw,
-  Sparkles,
-  Music,
+  SkipBack,
+  SkipForward,
   Plus,
   Trash2,
-  Video,
-  Settings,
+  Copy,
+  Download,
+  Sparkles,
+  Maximize2,
   Volume2,
   VolumeX,
-  Layout,
-  RefreshCw,
-  Clock,
+  Repeat,
   Sliders,
+  Layers,
+  Film,
+  Music,
+  FolderOpen,
+  Save,
+  RotateCcw,
+  CheckSquare,
+  Square,
+  Wand2,
+  Upload,
+  Image as ImageIcon,
   ChevronLeft,
   ChevronRight,
   Eye,
-  Type as FontIcon,
-  Layers,
-  Sparkle,
-  Copy,
-  FolderOpen,
-  Undo,
-  Redo,
-  Compass,
-  Bookmark,
-  Save,
-  Check,
-  CheckSquare,
-  Square,
-  Library,
-  Images,
-  Film,
-  ArrowRight,
-  Home,
-  Mic
+  X,
+  FileVideo
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { CollegeMelodyGenerator } from "./utils";
-import { Home3DBackground } from "./Home3DBackground";
+import { CollegeMelodyGenerator, transcodeWebmToMp4InBrowser, sliceCollageImage } from "./utils";
+import { StarField } from "./components/StarField";
+import { DEFAULT_COLLAGE, DEFAULT_COLLAGE_IMAGE, SubPhoto } from "./data/defaultCollage";
 
-interface VideoSlide {
+export interface VideoSlide {
   id: string;
   url: string;
-  name: string;
-  duration: number; // in seconds
-  transition: "zoom" | "panLeft" | "panRight" | "slideUp" | "slideLeft" | "slideRight" | "blurFade" | "retroSpin" | "zoomOut" | "tiltUp" | "tiltDown" | "vortex" | "glitch" | "fadeOnly";
   caption: string;
-  captionFont?: "Inter" | "Playfair Display" | "JetBrains Mono" | "Space Grotesk" | "Comic Sans MS";
-  captionColor?: string;
-  captionSize?: "small" | "medium" | "large" | "xlarge";
-  captionAnimation?: "fade" | "slideUp" | "typewriter" | "bounce" | "scale" | "none";
-  fitMode?: "cover" | "contain";
-  zoomMultiplier?: number; // scale adjustment from 0.6 to 2.0
-  showSubtitle?: boolean;
-  mediaType?: "image" | "video";
-  trimStart?: number;
-  trimEnd?: number;
-  cropTop?: number;
-  cropBottom?: number;
-  cropLeft?: number;
-  cropRight?: number;
-  volume?: number; // individual slide volume adjustment (0 to 100, default 100)
-  filter?: "none" | "grayscale" | "sepia" | "vibrant" | "vintage" | "invert" | "warm" | "cool" | "dramatic" | "cyberpunk" | "technicolor" | "monochrome" | "dream"; // artistic filters
-  brightness?: number;
-  contrast?: number;
-  saturation?: number;
-  hueRotate?: number;
-  motionAngle?: number; // 0 to 360
-  motionSpeed?: number; // 0 to 100
-  bezierCurve?: [number, number, number, number]; // [x1, y1, x2, y2]
-  anchorX?: number; // 0 to 100
-  anchorY?: number; // 0 to 100
-  maskType?: "none" | "radial_focus" | "vignette" | "split_mask";
-  maskRadius?: number; // 10 to 100
-  maskFeather?: number; // 0 to 100
-  cameraRoll?: number; // -45 to 45
-  cameraPitch?: number; // -45 to 45
-  cameraYaw?: number; // -45 to 45
-  parallaxEnabled?: boolean;
-  parallaxStrength?: number; // 0 to 100
-  vfxType?: "none" | "lens_flare" | "light_leak" | "film_grain" | "snow" | "rain" | "vhs" | "bokeh";
-  vfxIntensity?: number; // 0 to 100
+  duration: number; // in seconds
+  transition:
+    | "zoom"
+    | "zoomOut"
+    | "panLeft"
+    | "panRight"
+    | "tiltUp"
+    | "tiltDown"
+    | "slideUp"
+    | "slideLeft"
+    | "slideRight"
+    | "blurFade"
+    | "retroSpin"
+    | "vortex"
+    | "glitch"
+    | "fadeOnly";
+  filter:
+    | "none"
+    | "grayscale"
+    | "sepia"
+    | "vibrant"
+    | "vintage"
+    | "invert"
+    | "warm"
+    | "cool"
+    | "dramatic"
+    | "cyberpunk"
+    | "technicolor"
+    | "monochrome";
+  fitMode: "cover" | "contain";
+  zoomMultiplier?: number;
+  volume?: number;
+  description?: string;
 }
 
-interface StylePreset {
-  id: string;
-  name: string;
-  description: string;
-  isCustom?: boolean;
-  transition: "zoom" | "panLeft" | "panRight" | "slideUp" | "slideLeft" | "slideRight" | "blurFade" | "retroSpin" | "zoomOut" | "tiltUp" | "tiltDown" | "vortex" | "glitch" | "fadeOnly";
-  filter: "none" | "grayscale" | "sepia" | "vibrant" | "vintage" | "invert" | "warm" | "cool" | "dramatic" | "cyberpunk" | "technicolor" | "monochrome" | "dream";
-  vfxType: "none" | "lens_flare" | "light_leak" | "film_grain" | "snow" | "rain" | "vhs" | "bokeh";
-  vfxIntensity: number;
-  maskType?: "none" | "radial_focus" | "vignette" | "split_mask";
-  maskRadius?: number;
-  maskFeather?: number;
-  cameraRoll?: number;
-  cameraPitch?: number;
-  cameraYaw?: number;
-  parallaxEnabled?: boolean;
-  parallaxStrength?: number;
-  motionSpeed?: number;
-  motionAngle?: number;
-}
-
-const SYSTEM_PRESETS: StylePreset[] = [
+// Built-in Sample Photos for initial state
+const INITIAL_SLIDES: VideoSlide[] = [
   {
-    id: "vintage_35mm",
-    name: "📽️ Vintage 35mm Cinema",
-    description: "Nostalgic warm tones, subtle analog film grain, and elegant zooming transitions.",
+    id: "slide_1",
+    url: "https://images.unsplash.com/photo-1517457373958-b7bdd4587205?auto=format&fit=crop&w=1200&q=80",
+    caption: "The unforgettable campus sunsets and endless conversations.",
+    duration: 3,
     transition: "zoom",
-    filter: "vintage",
-    vfxType: "film_grain",
-    vfxIntensity: 45,
-    cameraRoll: 1,
-    parallaxEnabled: true,
-    parallaxStrength: 25,
-    maskType: "vignette",
-    maskRadius: 80,
-    maskFeather: 60
-  },
-  {
-    id: "cyberpunk_neon",
-    name: "🌆 Cyberpunk Neon Horizon",
-    description: "Vibrant futuristic color grading, high-intensity projector light leaks, and pan-left dynamics.",
-    transition: "panLeft",
     filter: "cyberpunk",
-    vfxType: "light_leak",
-    vfxIntensity: 65,
-    cameraPitch: 5,
-    cameraRoll: -3,
-    maskType: "vignette",
-    maskRadius: 85,
-    maskFeather: 50
+    fitMode: "cover",
+    zoomMultiplier: 1.1,
+    volume: 100,
+    description: "Students gathering at sunset"
   },
   {
-    id: "golden_dream",
-    name: "🟡 Golden Hour Dream",
-    description: "Warm glow filter, dreamy floating bokeh particles, and smooth pan-right motion.",
-    transition: "panRight",
-    filter: "dream",
-    vfxType: "bokeh",
-    vfxIntensity: 50,
-    maskType: "vignette",
-    maskRadius: 80,
-    maskFeather: 60,
-    parallaxEnabled: true,
-    parallaxStrength: 20
+    id: "slide_2",
+    url: "https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=1200&q=80",
+    caption: "Laughter echoed through library halls and late-night study sessions.",
+    duration: 3.5,
+    transition: "panLeft",
+    filter: "vibrant",
+    fitMode: "cover",
+    zoomMultiplier: 1.0,
+    volume: 100,
+    description: "Friends laughing together in study group"
   },
   {
-    id: "noir_storm",
-    name: "🌧️ Cinematic Noir Storm",
-    description: "High-contrast monochrome filter, atmospheric vertical rain drops, and dramatic focal zoom.",
-    transition: "zoom",
-    filter: "monochrome",
-    vfxType: "rain",
-    vfxIntensity: 70,
-    maskType: "vignette",
-    maskRadius: 65,
-    maskFeather: 45
-  },
-  {
-    id: "retro_vhs",
-    name: "📼 Retro 80s VHS Tape",
-    description: "Warm analog hues, 240p VCR tracking distortion, scanlines, and camera roll slant.",
-    transition: "zoomOut",
+    id: "slide_3",
+    url: "https://images.unsplash.com/photo-1529156069898-49953e39b3ac?auto=format&fit=crop&w=1200&q=80",
+    caption: "A bond forged in shared dreams and unforgettable memories.",
+    duration: 4,
+    transition: "blurFade",
     filter: "warm",
-    vfxType: "vhs",
-    vfxIntensity: 60,
-    cameraRoll: -1,
-    maskType: "split_mask"
+    fitMode: "cover",
+    zoomMultiplier: 1.2,
+    volume: 100,
+    description: "Celebration outdoors with friends"
   },
   {
-    id: "cozy_snow",
-    name: "❄️ Atmospheric Cozy Snow",
-    description: "Cool glacier tones, gentle falling winter snow drifts, and tilt-up perspective.",
-    transition: "tiltUp",
-    filter: "cool",
-    vfxType: "snow",
-    vfxIntensity: 55,
-    maskType: "vignette",
-    maskRadius: 90,
-    maskFeather: 70,
-    parallaxEnabled: true,
-    parallaxStrength: 35
-  },
-  {
-    id: "anamorphic_flare",
-    name: "🎥 Lens Flare Glamour",
-    description: "High-contrast dramatic lighting, anamorphic streak flare tracking, and camera perspective.",
-    transition: "slideLeft",
+    id: "slide_4",
+    url: "https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&w=1200&q=80",
+    caption: "Caps tossed into the sky, stepping boldly into tomorrow.",
+    duration: 3.5,
+    transition: "zoomOut",
     filter: "dramatic",
-    vfxType: "lens_flare",
-    vfxIntensity: 60,
-    cameraPitch: -3,
-    cameraYaw: 4,
-    maskType: "radial_focus",
-    maskRadius: 75,
-    maskFeather: 55
+    fitMode: "cover",
+    zoomMultiplier: 1.0,
+    volume: 100,
+    description: "Graduation celebration moment"
   }
 ];
 
-export const getFilterCss = (slide?: Partial<VideoSlide>): string => {
-  if (!slide) return "none";
-  let filterStr = "";
+export default function App() {
+  // Core Slides & Project State
+  const [slides, setSlides] = useState<VideoSlide[]>(INITIAL_SLIDES);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [projectName, setProjectName] = useState("CYBERPUNK SHORT REEL");
+  const [videoAspectRatio, setVideoAspectRatio] = useState<"16:9" | "9:16" | "1:1" | "4:5">("16:9");
 
-  if (slide.filter && slide.filter !== "none") {
-    switch (slide.filter) {
-      case "grayscale": filterStr += "grayscale(100%) "; break;
-      case "sepia": filterStr += "sepia(100%) "; break;
-      case "vibrant": filterStr += "saturate(180%) contrast(115%) "; break;
-      case "vintage": filterStr += "contrast(115%) sepia(35%) saturate(110%) "; break;
-      case "invert": filterStr += "invert(100%) "; break;
-      case "warm": filterStr += "sepia(20%) saturate(130%) "; break;
-      case "cool": filterStr += "contrast(105%) hue-rotate(-10deg) saturate(95%) "; break;
-      case "dramatic": filterStr += "contrast(135%) saturate(50%) brightness(90%) "; break;
-      case "cyberpunk": filterStr += "contrast(125%) saturate(160%) hue-rotate(55deg) brightness(110%) "; break;
-      case "technicolor": filterStr += "contrast(140%) sepia(12%) saturate(210%) hue-rotate(-8deg) "; break;
-      case "monochrome": filterStr += "contrast(210%) grayscale(100%) brightness(105%) "; break;
-      case "dream": filterStr += "contrast(90%) brightness(112%) saturate(115%) blur(0.4px) "; break;
+  // Playback State
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentSlideTime, setCurrentSlideTime] = useState(0); // time in current slide (seconds)
+  const [isLooping, setIsLooping] = useState(true);
+  const [previewToggle, setPreviewToggle] = useState(0);
+
+  // Inspector & Active Tab
+  const [activeTab, setActiveTab] = useState<"style" | "motion" | "captions">("style");
+
+  // Batch Selection State
+  const [isBatchMode, setIsBatchMode] = useState(false);
+  const [selectedSlideIds, setSelectedSlideIds] = useState<Set<string>>(new Set());
+
+  // Audio Synth State
+  const [isMusicEnabled, setIsMusicEnabled] = useState(false);
+  const [musicVolume, setMusicVolume] = useState(80);
+  const melodyGenRef = useRef<CollegeMelodyGenerator | null>(null);
+
+  // Modals State
+  const [showAiModal, setShowAiModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [showProjectsModal, setShowProjectsModal] = useState(false);
+  const [showGalleryModal, setShowGalleryModal] = useState(false);
+
+  // AI Collage Modal Local State
+  const [collageImageUrl, setCollageImageUrl] = useState("");
+  const [isAnalyzingCollage, setIsAnalyzingCollage] = useState(false);
+  const [collageStatusText, setCollageStatusText] = useState("");
+  const [collageTheme, setCollageTheme] = useState("Cyberpunk Sci-Fi Story");
+  const [collagePrompt, setCollagePrompt] = useState("High energy, cinematic rhythm, neon cyberpunk atmosphere.");
+
+  // Export State
+  const [exportResolution, setExportResolution] = useState<"720p" | "1080p" | "4k">("1080p");
+  const [exportFormat, setExportFormat] = useState<"mp4" | "webm">("mp4");
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
+  const [exportStatusText, setExportStatusText] = useState("");
+  const [exportTimeRemaining, setExportTimeRemaining] = useState<number | null>(null);
+
+  // Saved Projects List from LocalStorage
+  const [savedProjects, setSavedProjects] = useState<string[]>([]);
+
+  // Asset Gallery & Direct URL input
+  const [galleryAssets, setGalleryAssets] = useState<string[]>([
+    "https://images.unsplash.com/photo-1517457373958-b7bdd4587205?auto=format&fit=crop&w=1200&q=80",
+    "https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=1200&q=80",
+    "https://images.unsplash.com/photo-1529156069898-49953e39b3ac?auto=format&fit=crop&w=1200&q=80",
+    "https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&w=1200&q=80",
+    "https://images.unsplash.com/photo-1508739773434-c26b3d09e071?auto=format&fit=crop&w=1200&q=80",
+    "https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=1200&q=80"
+  ]);
+  const [galleryInputUrl, setGalleryInputUrl] = useState("");
+  const [isGeneratingCaptions, setIsGeneratingCaptions] = useState(false);
+
+  // HUD Toast Notification (Replaces window.alert for sandboxed iframe compatibility)
+  const [toast, setToast] = useState<{ id: number; message: string; type: "success" | "info" | "warn" } | null>(null);
+  const showToast = useCallback((message: string, type: "success" | "info" | "warn" = "info") => {
+    const id = Date.now();
+    setToast({ id, message, type });
+    setTimeout(() => {
+      setToast(prev => (prev?.id === id ? null : prev));
+    }, 3200);
+  }, []);
+
+  // HUD In-App Confirmation Dialog (Replaces window.confirm for sandboxed iframe compatibility)
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string;
+    message: string;
+    confirmText?: string;
+    confirmColor?: "red" | "cyan";
+    onConfirm: () => void;
+  } | null>(null);
+
+  // Canvas / Video Ref for rendering
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Calculate Total Film Duration
+  const totalDuration = useMemo(() => {
+    return slides.reduce((acc, s) => acc + s.duration, 0);
+  }, [slides]);
+
+  // Calculate Elapsed Total Timecode
+  const totalElapsedTime = useMemo(() => {
+    if (slides.length === 0) return 0;
+    let sum = 0;
+    for (let i = 0; i < currentIndex; i++) {
+      sum += slides[i]?.duration || 0;
     }
-  }
+    return sum + currentSlideTime;
+  }, [slides, currentIndex, currentSlideTime]);
 
-  if (slide.brightness !== undefined && slide.brightness !== 100) filterStr += `brightness(${slide.brightness}%) `;
-  if (slide.contrast !== undefined && slide.contrast !== 100) filterStr += `contrast(${slide.contrast}%) `;
-  if (slide.saturation !== undefined && slide.saturation !== 100) filterStr += `saturate(${slide.saturation}%) `;
-  if (slide.hueRotate !== undefined && slide.hueRotate !== 0) filterStr += `hue-rotate(${slide.hueRotate}deg) `;
+  // Format Seconds to MM:SS:FF
+  const formatTimecode = (seconds: number) => {
+    const totalSecs = Math.max(0, seconds);
+    const mins = Math.floor(totalSecs / 60);
+    const secs = Math.floor(totalSecs % 60);
+    const frames = Math.floor((totalSecs % 1) * 30);
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}:${frames.toString().padStart(2, "0")}`;
+  };
 
-  return filterStr.trim() || "none";
-};
+  // Safe Slide Deletion: decoupled state update with index re-clamping
+  const deleteSlide = useCallback((indexToDelete: number) => {
+    if (indexToDelete < 0 || indexToDelete >= slides.length) return;
+    const nextSlides = slides.filter((_, i) => i !== indexToDelete);
+    setSlides(nextSlides);
+    if (nextSlides.length === 0) {
+      setCurrentIndex(0);
+    } else if (currentIndex === indexToDelete) {
+      setCurrentIndex(Math.min(currentIndex, nextSlides.length - 1));
+    } else if (currentIndex > indexToDelete) {
+      setCurrentIndex(currentIndex - 1);
+    }
+    setCurrentSlideTime(0);
+    showToast("Slide removed from timeline", "info");
+  }, [slides, currentIndex, showToast]);
 
-function compressImage(file: File, maxWidth = 1000, maxHeight = 1000, quality = 0.6): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new window.Image();
-      img.onload = () => {
-        let width = img.width;
-        let height = img.height;
+  // Batch Delete
+  const deleteSelectedSlides = useCallback(() => {
+    if (selectedSlideIds.size === 0) return;
+    const count = selectedSlideIds.size;
+    const nextSlides = slides.filter(s => !selectedSlideIds.has(s.id));
+    setSlides(nextSlides);
+    setCurrentIndex(0);
+    setCurrentSlideTime(0);
+    setSelectedSlideIds(new Set());
+    setIsBatchMode(false);
+    showToast(`Deleted ${count} selected slides`, "info");
+  }, [slides, selectedSlideIds, showToast]);
 
-        // Calculate new dimensions
-        if (width > height) {
-          if (width > maxWidth) {
-            height = Math.round((height * maxWidth) / width);
-            width = maxWidth;
-          }
-        } else {
-          if (height > maxHeight) {
-            width = Math.round((width * maxHeight) / height);
-            height = maxHeight;
+  // Start New Project: clean state reset with HUD confirmation modal
+  const startNewProject = useCallback(() => {
+    if (slides.length > 0) {
+      setConfirmDialog({
+        title: "START NEW PROJECT",
+        message: "Are you sure you want to start a new blank project? Unsaved edits in the current session will be cleared.",
+        confirmText: "RESET BLANK",
+        confirmColor: "red",
+        onConfirm: () => {
+          setSlides([]);
+          setProjectName("NEW PROJECT");
+          setCurrentIndex(0);
+          setCurrentSlideTime(0);
+          setIsPlaying(false);
+          setSelectedSlideIds(new Set());
+          setConfirmDialog(null);
+          showToast("Workspace reset to blank project", "info");
+        }
+      });
+      return;
+    }
+    setSlides([]);
+    setProjectName("NEW PROJECT");
+    setCurrentIndex(0);
+    setCurrentSlideTime(0);
+    setIsPlaying(false);
+    setSelectedSlideIds(new Set());
+    showToast("Workspace reset to blank project", "info");
+  }, [slides.length, showToast]);
+
+  // Load Saved Projects List from LocalStorage
+  const refreshSavedProjects = () => {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith("cyber_video_project_")) {
+        keys.push(key.replace("cyber_video_project_", ""));
+      }
+    }
+    setSavedProjects(keys);
+  };
+
+  const saveCurrentProject = () => {
+    const key = `cyber_video_project_${projectName.trim() || "Untitled"}`;
+    const data = {
+      name: projectName,
+      aspectRatio: videoAspectRatio,
+      slides,
+      updatedAt: Date.now()
+    };
+    try {
+      localStorage.setItem(key, JSON.stringify(data));
+      refreshSavedProjects();
+      showToast(`Project "${projectName}" saved to local storage`, "success");
+    } catch (e) {
+      showToast("Error saving project to local storage", "warn");
+    }
+  };
+
+  const loadProject = (name: string) => {
+    const raw = localStorage.getItem(`cyber_video_project_${name}`);
+    if (!raw) return;
+    try {
+      const data = JSON.parse(raw);
+      setProjectName(data.name || name);
+      setVideoAspectRatio(data.aspectRatio || "16:9");
+      setSlides(data.slides || []);
+      setCurrentIndex(0);
+      setCurrentSlideTime(0);
+      setShowProjectsModal(false);
+      showToast(`Loaded project "${data.name || name}"`, "success");
+    } catch (e) {
+      showToast("Failed to load project data", "warn");
+    }
+  };
+
+  const deleteSavedProject = (name: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setConfirmDialog({
+      title: "DELETE SAVED PROJECT",
+      message: `Delete project "${name}" from local storage? This action cannot be undone.`,
+      confirmText: "DELETE",
+      confirmColor: "red",
+      onConfirm: () => {
+        localStorage.removeItem(`cyber_video_project_${name}`);
+        refreshSavedProjects();
+        setConfirmDialog(null);
+        showToast(`Project "${name}" deleted`, "info");
+      }
+    });
+  };
+
+  // Duplicate Slide
+  const duplicateSlide = (index: number) => {
+    if (!slides[index]) return;
+    const item = slides[index];
+    const copySlide: VideoSlide = {
+      ...item,
+      id: `slide_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`
+    };
+    const updated = [...slides];
+    updated.splice(index + 1, 0, copySlide);
+    setSlides(updated);
+    setCurrentIndex(index + 1);
+    setCurrentSlideTime(0);
+    showToast(`Slide ${(index + 1).toString().padStart(2, "0")} duplicated`, "success");
+  };
+
+  // Reorder Slide Left / Right
+  const moveSlide = (fromIndex: number, toIndex: number) => {
+    if (toIndex < 0 || toIndex >= slides.length) return;
+    const updated = [...slides];
+    const [moved] = updated.splice(fromIndex, 1);
+    updated.splice(toIndex, 0, moved);
+    setSlides(updated);
+    setCurrentIndex(toIndex);
+    setCurrentSlideTime(0);
+    showToast(`Slide moved to position ${(toIndex + 1).toString().padStart(2, "0")}`, "info");
+  };
+
+  // Keyboard Shortcuts: Delete and Backspace bound to delete selected slide
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Avoid deleting if user is typing in input or textarea
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) {
+        return;
+      }
+
+      if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        if (isBatchMode && selectedSlideIds.size > 0) {
+          deleteSelectedSlides();
+        } else if (slides.length > 0 && currentIndex < slides.length) {
+          deleteSlide(currentIndex);
+        }
+      } else if (e.key === " " && !e.repeat) {
+        e.preventDefault();
+        setIsPlaying(p => !p);
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        setCurrentIndex(p => Math.max(0, p - 1));
+        setCurrentSlideTime(0);
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        setCurrentIndex(p => Math.min(slides.length - 1, p + 1));
+        setCurrentSlideTime(0);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [slides.length, currentIndex, isBatchMode, selectedSlideIds, deleteSlide, deleteSelectedSlides]);
+
+  // Audio Synthesizer Toggle
+  useEffect(() => {
+    if (isMusicEnabled) {
+      if (!melodyGenRef.current) {
+        melodyGenRef.current = new CollegeMelodyGenerator();
+      }
+      melodyGenRef.current.volumeMultiplier = musicVolume / 100;
+      melodyGenRef.current.start();
+    } else {
+      if (melodyGenRef.current) {
+        melodyGenRef.current.stop();
+        melodyGenRef.current = null;
+      }
+    }
+
+    return () => {
+      if (melodyGenRef.current) {
+        melodyGenRef.current.stop();
+        melodyGenRef.current = null;
+      }
+    };
+  }, [isMusicEnabled]);
+
+  useEffect(() => {
+    if (melodyGenRef.current) {
+      melodyGenRef.current.volumeMultiplier = musicVolume / 100;
+    }
+  }, [musicVolume]);
+
+  // Real-time Playback Timer Loop
+  useEffect(() => {
+    if (!isPlaying || slides.length === 0) return;
+
+    const interval = 50; // 20 updates/second for smooth timecode
+    const timer = setInterval(() => {
+      setCurrentSlideTime(prev => {
+        const currentSlide = slides[currentIndex];
+        if (!currentSlide) return 0;
+
+        const nextTime = prev + interval / 1000;
+        if (nextTime >= currentSlide.duration) {
+          // Slide finished, advance to next
+          if (currentIndex < slides.length - 1) {
+            setCurrentIndex(currentIndex + 1);
+            return 0;
+          } else {
+            // Loop or finish
+            if (isLooping) {
+              setCurrentIndex(0);
+              return 0;
+            } else {
+              setIsPlaying(false);
+              return currentSlide.duration;
+            }
           }
         }
+        return nextTime;
+      });
+    }, interval);
 
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
+    return () => clearInterval(timer);
+  }, [isPlaying, slides, currentIndex, isLooping]);
 
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          resolve(e.target?.result as string);
+  // Filter CSS resolver
+  const getFilterCss = (filter: VideoSlide["filter"]) => {
+    switch (filter) {
+      case "grayscale":
+        return "grayscale(100%) contrast(110%)";
+      case "sepia":
+        return "sepia(75%) contrast(105%) brightness(95%)";
+      case "vibrant":
+        return "saturate(170%) contrast(110%)";
+      case "vintage":
+        return "sepia(35%) contrast(90%) brightness(105%) saturate(120%)";
+      case "invert":
+        return "invert(100%) hue-rotate(180deg)";
+      case "warm":
+        return "sepia(25%) saturate(140%) hue-rotate(-10deg)";
+      case "cool":
+        return "saturate(110%) hue-rotate(180deg) brightness(105%)";
+      case "dramatic":
+        return "contrast(140%) saturate(75%) brightness(90%)";
+      case "cyberpunk":
+        return "contrast(130%) saturate(180%) hue-rotate(290deg)";
+      case "technicolor":
+        return "contrast(115%) saturate(200%) brightness(105%)";
+      case "monochrome":
+        return "grayscale(100%) contrast(160%) brightness(90%)";
+      default:
+        return "none";
+    }
+  };
+
+  // Motion Animation Generator
+  const getMotionAnimation = (slide: VideoSlide, duration: number) => {
+    const zoom = slide.zoomMultiplier || 1.0;
+    switch (slide.transition) {
+      case "zoom":
+        return {
+          initial: { scale: zoom, opacity: 0 },
+          animate: { scale: zoom * 1.15, opacity: 1 },
+          exit: { opacity: 0 },
+          transition: { duration, ease: "easeOut" }
+        };
+      case "zoomOut":
+        return {
+          initial: { scale: zoom * 1.25, opacity: 0 },
+          animate: { scale: zoom, opacity: 1 },
+          exit: { opacity: 0 },
+          transition: { duration, ease: "easeOut" }
+        };
+      case "panLeft":
+        return {
+          initial: { x: 40, scale: zoom * 1.05, opacity: 0 },
+          animate: { x: -40, scale: zoom * 1.05, opacity: 1 },
+          exit: { opacity: 0 },
+          transition: { duration, ease: "linear" }
+        };
+      case "panRight":
+        return {
+          initial: { x: -40, scale: zoom * 1.05, opacity: 0 },
+          animate: { x: 40, scale: zoom * 1.05, opacity: 1 },
+          exit: { opacity: 0 },
+          transition: { duration, ease: "linear" }
+        };
+      case "tiltUp":
+        return {
+          initial: { y: 35, scale: zoom * 1.05, opacity: 0 },
+          animate: { y: -35, scale: zoom * 1.05, opacity: 1 },
+          exit: { opacity: 0 },
+          transition: { duration, ease: "linear" }
+        };
+      case "tiltDown":
+        return {
+          initial: { y: -35, scale: zoom * 1.05, opacity: 0 },
+          animate: { y: 35, scale: zoom * 1.05, opacity: 1 },
+          exit: { opacity: 0 },
+          transition: { duration, ease: "linear" }
+        };
+      case "slideUp":
+        return {
+          initial: { y: "100%", opacity: 0 },
+          animate: { y: 0, opacity: 1 },
+          exit: { y: "-100%", opacity: 0 },
+          transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] }
+        };
+      case "slideLeft":
+        return {
+          initial: { x: "100%", opacity: 0 },
+          animate: { x: 0, opacity: 1 },
+          exit: { x: "-100%", opacity: 0 },
+          transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] }
+        };
+      case "slideRight":
+        return {
+          initial: { x: "-100%", opacity: 0 },
+          animate: { x: 0, opacity: 1 },
+          exit: { x: "100%", opacity: 0 },
+          transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] }
+        };
+      case "blurFade":
+        return {
+          initial: { filter: "blur(15px)", opacity: 0, scale: zoom * 1.08 },
+          animate: { filter: "blur(0px)", opacity: 1, scale: zoom },
+          exit: { filter: "blur(15px)", opacity: 0 },
+          transition: { duration: 0.8, ease: "easeInOut" }
+        };
+      case "retroSpin":
+        return {
+          initial: { rotate: -15, scale: zoom * 0.8, opacity: 0 },
+          animate: { rotate: 0, scale: zoom * 1.05, opacity: 1 },
+          exit: { rotate: 15, scale: zoom * 1.2, opacity: 0 },
+          transition: { duration: 0.9, ease: "easeOut" }
+        };
+      case "vortex":
+        return {
+          initial: { rotate: -180, scale: 0.2, opacity: 0 },
+          animate: { rotate: 0, scale: zoom, opacity: 1 },
+          exit: { rotate: 180, scale: 2.0, opacity: 0 },
+          transition: { duration: 0.9, ease: "easeInOut" }
+        };
+      case "glitch":
+        return {
+          initial: { x: 10, skewX: 12, opacity: 0 },
+          animate: { x: [0, -6, 6, -2, 0], skewX: [0, -8, 8, -2, 0], opacity: 1 },
+          exit: { opacity: 0 },
+          transition: { duration: 0.7, ease: "easeInOut" }
+        };
+      case "fadeOnly":
+      default:
+        return {
+          initial: { opacity: 0 },
+          animate: { opacity: 1 },
+          exit: { opacity: 0 },
+          transition: { duration: 0.5, ease: "easeInOut" }
+        };
+    }
+  };
+
+  // AI Collage Analysis & Auto Video Generation
+  const handleAnalyzeAndGenerateCollage = async () => {
+    setIsAnalyzingCollage(true);
+    setCollageStatusText("Detecting photo layout and sub-photos with Gemini Vision AI...");
+
+    try {
+      const targetImage = collageImageUrl.trim() || DEFAULT_COLLAGE_IMAGE;
+      
+      // Fetch image as base64
+      let base64 = "";
+      try {
+        const imgRes = await fetch(targetImage);
+        const blob = await imgRes.blob();
+        base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      } catch (err) {
+        console.warn("Could not fetch remote image directly, will use fallback default collage", err);
+      }
+
+      setCollageStatusText("Analyzing grid compositions & extracting bounding boxes...");
+
+      let detectedPhotos: SubPhoto[] = DEFAULT_COLLAGE.subPhotos;
+      let detectedTitle = DEFAULT_COLLAGE.title;
+
+      if (base64) {
+        try {
+          const res = await fetch("/api/analyze-collage", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageBase64: base64 })
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            if (data.subPhotos && Array.isArray(data.subPhotos) && data.subPhotos.length > 0) {
+              detectedPhotos = data.subPhotos.map((sp: any, idx: number) => ({
+                id: `ai_photo_${idx + 1}`,
+                x: sp.x,
+                y: sp.y,
+                width: sp.width,
+                height: sp.height,
+                description: sp.description || `Sub-photo ${idx + 1}`,
+                caption: sp.caption || "A cinematic memory captured in time.",
+                duration: 3 + (idx % 3),
+                transition: ["zoom", "panLeft", "blurFade", "panRight", "slideUp"][idx % 5] as any
+              }));
+              if (data.title) detectedTitle = data.title;
+            }
+          }
+        } catch (apiErr) {
+          console.warn("AI endpoint fallback to default bounding boxes:", apiErr);
+        }
+      }
+
+      setCollageStatusText("Slicing high-res sub-photos and rendering transitions...");
+
+      // Crop/slice sub-photos
+      const newSlides: VideoSlide[] = [];
+      for (let i = 0; i < detectedPhotos.length; i++) {
+        const sp = detectedPhotos[i];
+        let croppedUrl = targetImage;
+        try {
+          croppedUrl = await sliceCollageImage(targetImage, sp.x, sp.y, sp.width, sp.height);
+        } catch (cropErr) {
+          console.warn("Slice failed for photo", i, cropErr);
+        }
+
+        newSlides.push({
+          id: `slide_ai_${Date.now()}_${i}`,
+          url: croppedUrl,
+          caption: sp.caption,
+          duration: sp.duration,
+          transition: sp.transition === "fade" ? "fadeOnly" : sp.transition === "retro" ? "retroSpin" : (sp.transition as any),
+          filter: (["none", "cyberpunk", "vibrant", "warm", "dramatic"][i % 5] as any),
+          fitMode: "cover",
+          zoomMultiplier: 1.05,
+          volume: 100,
+          description: sp.description
+        });
+      }
+
+      setSlides(newSlides);
+      setProjectName(detectedTitle.toUpperCase() || "AI GENERATED SHORT FILM");
+      setCurrentIndex(0);
+      setCurrentSlideTime(0);
+      setShowAiModal(false);
+      showToast("AI video generated successfully from collage!", "success");
+    } catch (err: any) {
+      showToast("Collage breakdown: " + (err.message || err), "warn");
+    } finally {
+      setIsAnalyzingCollage(false);
+      setCollageStatusText("");
+    }
+  };
+
+  // AI Regenerate Captions for existing slides
+  const handleRegenerateCaptions = async () => {
+    if (slides.length === 0) return;
+    setIsGeneratingCaptions(true);
+    showToast("Generating AI cinematic captions...", "info");
+    try {
+      const descriptions = slides.map((s, i) => s.description || s.caption || `Scene ${i + 1}`);
+      const res = await fetch("/api/generate-captions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          descriptions,
+          theme: collageTheme,
+          prompt: collagePrompt
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.captions && Array.isArray(data.captions)) {
+          const updated = slides.map((s, idx) => ({
+            ...s,
+            caption: data.captions[idx] || s.caption
+          }));
+          setSlides(updated);
+          showToast("Captions refreshed with Gemini AI!", "success");
           return;
         }
+      }
+      throw new Error("AI endpoint unavailable, using creative script engine");
+    } catch (err: any) {
+      const cyberpunkCaptions = [
+        "Neon pulses echo through the rain-soaked asphalt.",
+        "Reflections of a distant skyline cut through the haze.",
+        "Every frame holds a fragmented memory frozen in time.",
+        "Drifting into the twilight grid where stories collide.",
+        "The engine roars against the quiet hum of the night.",
+        "Chasing shadows through the illuminated corridor.",
+        "Moments etched in chrome and electric light."
+      ];
+      const updated = slides.map((s, idx) => ({
+        ...s,
+        caption: cyberpunkCaptions[idx % cyberpunkCaptions.length]
+      }));
+      setSlides(updated);
+      showToast("Captions refreshed with cinematic story script!", "success");
+    } finally {
+      setIsGeneratingCaptions(false);
+    }
+  };
 
-        ctx.drawImage(img, 0, 0, width, height);
-        // Export to JPEG with specified quality
-        const compressedDataUrl = canvas.toDataURL("image/jpeg", quality);
-        resolve(compressedDataUrl);
-      };
-      img.onerror = () => {
-        resolve(e.target?.result as string);
-      };
-      img.src = e.target?.result as string;
-    };
-    reader.onerror = (err) => reject(err);
-    reader.readAsDataURL(file);
-  });
-}
+  /**
+   * Slideshow Video Compilation & Export Logic
+   * Note Bug fix from User Request 1:
+   * "Investigate the slideshow rendering engine logic in `compileNextSlide`. The current loop starts transition application after the first few frames;
+   * ensure the transition state is correctly initialized and applied to the very first slide by properly syncing the frame counter and transition duration parameters at the start of the compilation process."
+   */
+  const handleExportVideo = async () => {
+    if (slides.length === 0) {
+      showToast("Please add at least one slide before exporting.", "warn");
+      return;
+    }
 
-function compressDataUrl(dataUrl: string, maxWidth = 1000, maxHeight = 1000, quality = 0.6): Promise<string> {
-  if (!dataUrl || !dataUrl.startsWith("data:image/")) {
-    return Promise.resolve(dataUrl);
-  }
-  // If already compact, skip
-  if (dataUrl.length < 120000) {
-    return Promise.resolve(dataUrl);
-  }
+    setIsExporting(true);
+    setExportProgress(0);
+    setExportStatusText("Setting up video canvas rendering pipeline...");
 
-  return new Promise((resolve) => {
-    const img = new window.Image();
-    img.onload = () => {
-      let width = img.width;
-      let height = img.height;
-
-      // Calculate new dimensions
-      if (width > height) {
-        if (width > maxWidth) {
-          height = Math.round((height * maxWidth) / width);
-          width = maxWidth;
-        }
+    try {
+      // Determine Dimensions
+      let width = 1920;
+      let height = 1080;
+      if (exportResolution === "720p") {
+        width = videoAspectRatio === "9:16" ? 720 : 1280;
+        height = videoAspectRatio === "9:16" ? 1280 : 720;
+      } else if (exportResolution === "4k") {
+        width = videoAspectRatio === "9:16" ? 2160 : 3840;
+        height = videoAspectRatio === "9:16" ? 3840 : 2160;
       } else {
-        if (height > maxHeight) {
-          width = Math.round((width * maxHeight) / height);
-          height = maxHeight;
-        }
+        // 1080p
+        width = videoAspectRatio === "9:16" ? 1080 : 1920;
+        height = videoAspectRatio === "9:16" ? 1920 : 1080;
+      }
+
+      if (videoAspectRatio === "1:1") {
+        width = height = exportResolution === "4k" ? 2160 : exportResolution === "720p" ? 720 : 1080;
       }
 
       const canvas = document.createElement("canvas");
       canvas.width = width;
       canvas.height = height;
-
       const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        resolve(dataUrl);
-        return;
+      if (!ctx) throw new Error("Could not initialize 2D canvas context");
+
+      // Preload all slide images
+      setExportStatusText("Preloading slide visual assets...");
+      const loadedImages: HTMLImageElement[] = await Promise.all(
+        slides.map(s => {
+          return new Promise<HTMLImageElement>((resolve, reject) => {
+            const img = new Image();
+            img.crossOrigin = "anonymous";
+            img.onload = () => resolve(img);
+            img.onerror = () => resolve(img); // continue gracefully
+            img.src = s.url;
+          });
+        })
+      );
+
+      // Set up Audio Context and Destination for recording
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const audioDest = audioCtx.createMediaStreamDestination();
+
+      if (isMusicEnabled) {
+        const synth = new CollegeMelodyGenerator();
+        synth.volumeMultiplier = (musicVolume / 100) * 0.8;
+        synth.start(audioDest, audioCtx);
       }
 
-      ctx.drawImage(img, 0, 0, width, height);
-      const compressed = canvas.toDataURL("image/jpeg", quality);
-      resolve(compressed);
-    };
-    img.onerror = () => {
-      resolve(dataUrl);
-    };
-    img.src = dataUrl;
-  });
-}
+      // Stream recording setup
+      const canvasStream = canvas.captureStream(30);
+      const combinedStream = new MediaStream([
+        ...canvasStream.getVideoTracks(),
+        ...audioDest.stream.getAudioTracks()
+      ]);
 
-function safeSaveToLocalStorage(key: string, data: any, pruneCallback?: (data: any) => any): boolean {
-  let success = false;
-  let attempts = 0;
-  let currentData = data;
-  while (!success && attempts < 30) {
-    try {
-      localStorage.setItem(key, JSON.stringify(currentData));
-      success = true;
-    } catch (e: any) {
-      if (e.name === "QuotaExceededError" || e.code === 22 || e.name === "NS_ERROR_DOM_QUOTA_REACHED") {
-        console.warn(`LocalStorage quota exceeded for key ${key}. Attempting to prune...`);
-        if (pruneCallback) {
-          const pruned = pruneCallback(currentData);
-          if (pruned === currentData || (Array.isArray(pruned) && pruned.length === currentData.length)) {
-            // Pruning didn't reduce anything, stop to prevent infinite loop
+      const recordedChunks: Blob[] = [];
+      const mediaRecorder = new MediaRecorder(combinedStream, {
+        mimeType: MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+          ? "video/webm;codecs=vp9"
+          : "video/webm"
+      });
+
+      mediaRecorder.ondataavailable = e => {
+        if (e.data && e.data.size > 0) recordedChunks.push(e.data);
+      };
+
+      const recordFinishedPromise = new Promise<Blob>((resolve, reject) => {
+        mediaRecorder.onstop = () => {
+          const blob = new Blob(recordedChunks, { type: "video/webm" });
+          resolve(blob);
+        };
+        mediaRecorder.onerror = reject;
+      });
+
+      mediaRecorder.start();
+
+      // Rendering Engine Frame-by-Frame with compileNextSlide
+      const FPS = 30;
+      const totalFrames = Math.ceil(totalDuration * FPS);
+      let currentFrame = 0;
+
+      // compileNextSlide initialization: correctly start transition state at frame 0
+      const compileNextSlide = (frameIdx: number) => {
+        // Find which slide we are on based on frameIdx
+        let accumulatedSecs = 0;
+        let activeSlideIdx = 0;
+        let slideLocalSecs = 0;
+        const currentSecs = frameIdx / FPS;
+
+        for (let i = 0; i < slides.length; i++) {
+          const dur = slides[i].duration;
+          if (currentSecs >= accumulatedSecs && currentSecs < accumulatedSecs + dur) {
+            activeSlideIdx = i;
+            slideLocalSecs = currentSecs - accumulatedSecs;
             break;
           }
-          currentData = pruned;
-          attempts++;
-        } else {
-          break;
-        }
-      } else {
-        console.error(`Failed to save to localStorage for key ${key}`, e);
-        break;
-      }
-    }
-  }
-  return success;
-}
-
-function getInitialSlides(): VideoSlide[] {
-  try {
-    const saved = localStorage.getItem("cinematic_slides_data");
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed)) {
-        return parsed;
-      }
-    }
-  } catch (e) {
-    console.error("Error reading slides from localStorage", e);
-  }
-  return [];
-}
-
-interface GalleryAsset {
-  id: string;
-  url: string;
-  name: string;
-  addedAt: number;
-  mediaType?: "image" | "video";
-}
-
-function getInitialGalleryAssets(): GalleryAsset[] {
-  try {
-    const saved = localStorage.getItem("cinematic_asset_gallery");
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed)) return parsed;
-    }
-  } catch (e) {
-    console.error("Error reading asset gallery from localStorage", e);
-  }
-  return [];
-}
-
-export default function App() {
-  // Timeline Slides State
-  const [slides, setSlides] = useState<VideoSlide[]>(getInitialSlides);
-  const [currentIndex, setCurrentIndex] = useState<number>(0);
-  const [inspectorTab, setInspectorTab] = useState<"media" | "text" | "vfx">("media");
-
-  // Asset Gallery States
-  const [isAssetGalleryOpen, setIsAssetGalleryOpen] = useState<boolean>(false);
-  const [galleryAssets, setGalleryAssets] = useState<GalleryAsset[]>(getInitialGalleryAssets);
-  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
-  const [draggedAssetIdx, setDraggedAssetIdx] = useState<number | null>(null);
-
-  // Ref for the sidebar file upload input
-  const sidebarFileInputRef = useRef<HTMLInputElement>(null);
-
-  // Background optimization of existing large assets on startup
-  useEffect(() => {
-    let needsSlideUpdate = false;
-    let needsGalleryUpdate = false;
-
-    const optimizeAssets = async () => {
-      const optimizedSlides = await Promise.all(
-        slides.map(async (slide) => {
-          if (slide.url && slide.url.startsWith("data:image/") && slide.url.length > 150000) {
-            try {
-              const compressed = await compressDataUrl(slide.url);
-              if (compressed.length < slide.url.length) {
-                needsSlideUpdate = true;
-                return { ...slide, url: compressed };
-              }
-            } catch (err) {
-              console.error("Error optimizing slide image on startup", err);
-            }
-          }
-          return slide;
-        })
-      );
-
-      const optimizedGallery = await Promise.all(
-        galleryAssets.map(async (asset) => {
-          if (asset.url && asset.url.startsWith("data:image/") && asset.url.length > 150000) {
-            try {
-              const compressed = await compressDataUrl(asset.url);
-              if (compressed.length < asset.url.length) {
-                needsGalleryUpdate = true;
-                return { ...asset, url: compressed };
-              }
-            } catch (err) {
-              console.error("Error optimizing gallery asset image on startup", err);
-            }
-          }
-          return asset;
-        })
-      );
-
-      if (needsSlideUpdate) {
-        setSlides(optimizedSlides);
-      }
-      if (needsGalleryUpdate) {
-        setGalleryAssets(optimizedGallery);
-      }
-    };
-
-    optimizeAssets();
-  }, []);
-
-  // Auto-sync asset gallery to localStorage
-  useEffect(() => {
-    const pruneGallery = (assets: GalleryAsset[]) => {
-      if (assets.length === 0) return assets;
-      // Reduce by 25%, but guarantee at least 1 element is removed to prevent infinite loops/stalls
-      const targetLength = Math.min(assets.length - 1, Math.floor(assets.length * 0.75));
-      return assets.slice(0, targetLength);
-    };
-
-    const success = safeSaveToLocalStorage("cinematic_asset_gallery", galleryAssets, pruneGallery);
-    if (!success) {
-      console.warn("Failed to save asset gallery to localStorage even after pruning.");
-    } else {
-      // If we actually pruned, we should update the state so it is in sync
-      const savedDataStr = localStorage.getItem("cinematic_asset_gallery");
-      if (savedDataStr) {
-        try {
-          const parsed = JSON.parse(savedDataStr);
-          if (Array.isArray(parsed) && parsed.length < galleryAssets.length) {
-            setGalleryAssets(parsed);
-            setPresetFeedback("Storage quota reached. Older gallery assets were automatically pruned to save space.");
-            setTimeout(() => setPresetFeedback(null), 5000);
-          }
-        } catch (e) {
-          console.error(e);
-        }
-      }
-    }
-  }, [galleryAssets]);
-
-  // Populates asset gallery from existing slides if empty on startup
-  useEffect(() => {
-    if (galleryAssets.length === 0 && slides.length > 0) {
-      const initialAssets: GalleryAsset[] = slides.map((slide, idx) => ({
-        id: `asset_init_${idx}_${Date.now()}`,
-        url: slide.url,
-        name: slide.name || `Memory_${idx + 1}`,
-        addedAt: Date.now() - (slides.length - idx) * 1000
-      }));
-      setGalleryAssets(initialAssets);
-    }
-  }, [slides]);
-  const [selectedSlideId, setSelectedSlideId] = useState<string | null>(() => {
-    const initial = getInitialSlides();
-    return initial.length > 0 ? initial[0].id : null;
-  });
-
-  // Slide checking and batch selection state
-  const [checkedSlideIds, setCheckedSlideIds] = useState<Set<string>>(new Set());
-
-  const checkAllSlides = () => {
-    setCheckedSlideIds(new Set(slides.map(s => s.id)));
-  };
-
-  const uncheckAllSlides = () => {
-    setCheckedSlideIds(new Set());
-  };
-
-  const toggleSlideCheck = (slideId: string) => {
-    setCheckedSlideIds(prev => {
-      const next = new Set(prev);
-      if (next.has(slideId)) {
-        next.delete(slideId);
-      } else {
-        next.add(slideId);
-      }
-      return next;
-    });
-  };
-
-  const applySettingsToChecked = (fields: Array<keyof VideoSlide>) => {
-    const currentSlide = slides[currentIndex];
-    if (!currentSlide || checkedSlideIds.size === 0) return;
-
-    setSlides(prev =>
-      prev.map(slide => {
-        if (checkedSlideIds.has(slide.id)) {
-          const updatedSlide = { ...slide };
-          fields.forEach(field => {
-            if (currentSlide[field] !== undefined) {
-              // @ts-ignore
-              updatedSlide[field] = currentSlide[field];
-            }
-          });
-          return updatedSlide;
-        }
-        return slide;
-      })
-    );
-    setPresetFeedback(`Successfully applied ${fields.join(", ")} from Scene #${currentIndex + 1} to ${checkedSlideIds.size} checked frames!`);
-    setTimeout(() => setPresetFeedback(null), 3500);
-  };
-
-  const deleteCheckedSlides = () => {
-    if (checkedSlideIds.size === 0) return;
-    if (confirm(`Are you sure you want to delete ${checkedSlideIds.size} checked slides from your timeline?`)) {
-      const remainingSlides = slides.filter(s => !checkedSlideIds.has(s.id));
-      setSlides(remainingSlides);
-      setCheckedSlideIds(new Set());
-      if (currentIndex >= remainingSlides.length) {
-        setCurrentIndex(Math.max(0, remainingSlides.length - 1));
-      }
-      setPresetFeedback(`Deleted ${checkedSlideIds.size} slides.`);
-      setTimeout(() => setPresetFeedback(null), 3000);
-    }
-  };
-
-  // State to hold results of cinematic timeline quality audit
-  const [auditReports, setAuditReports] = useState<string[] | null>(null);
-
-  // Project Management State
-  const [projectName, setProjectName] = useState<string>("My Project");
-  const [currentView, setCurrentView] = useState<"home" | "editor">("home");
-  const [availableProjects, setAvailableProjects] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem("cinematic_projects_list") || "[]"); } catch { return []; }
-  });
-
-  const saveProject = () => {
-    const projectData = {
-      slides,
-      projectName,
-      videoAspectRatio,
-      exportResolution,
-      activeSoundtrackType,
-      globalShowSubtitles
-    };
-    localStorage.setItem(`cinematic_project_${projectName}`, JSON.stringify(projectData));
-    if (!availableProjects.includes(projectName)) {
-      const updated = [...availableProjects, projectName];
-      setAvailableProjects(updated);
-      localStorage.setItem("cinematic_projects_list", JSON.stringify(updated));
-    }
-    setPresetFeedback(`Project "${projectName}" saved successfully.`);
-    setTimeout(() => setPresetFeedback(null), 3000);
-  };
-
-  const loadProject = (name: string) => {
-    const data = localStorage.getItem(`cinematic_project_${name}`);
-    if (data) {
-      try {
-        const parsed = JSON.parse(data);
-        setSlides(parsed.slides || []);
-        setProjectName(parsed.projectName || name);
-        setVideoAspectRatio(parsed.videoAspectRatio || "16:9");
-        setExportResolution(parsed.exportResolution || "1080p");
-        if (parsed.activeSoundtrackType) setActiveSoundtrackType(parsed.activeSoundtrackType);
-        if (parsed.globalShowSubtitles !== undefined) setGlobalShowSubtitles(parsed.globalShowSubtitles);
-        setPresetFeedback(`Loaded project "${name}".`);
-        setTimeout(() => setPresetFeedback(null), 3000);
-      } catch (e) {
-        console.error("Failed to load project", e);
-      }
-    }
-  };
-
-  const deleteProject = (name: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!window.confirm(`Are you sure you want to delete the project "${name}"?`)) return;
-    localStorage.removeItem(`cinematic_project_${name}`);
-    const updated = availableProjects.filter(p => p !== name);
-    setAvailableProjects(updated);
-    localStorage.setItem("cinematic_projects_list", JSON.stringify(updated));
-    if (projectName === name) {
-      setProjectName("My Project");
-    }
-    setPresetFeedback(`Project "${name}" deleted.`);
-    setTimeout(() => setPresetFeedback(null), 3000);
-  };
-
-  const deleteAllProjects = () => {
-    if (!window.confirm("Are you sure you want to delete ALL projects? This cannot be undone.")) return;
-    availableProjects.forEach(name => {
-      localStorage.removeItem(`cinematic_project_${name}`);
-    });
-    localStorage.removeItem("cinematic_projects_list");
-    setAvailableProjects([]);
-    setProjectName("My Project");
-    setPresetFeedback("All projects deleted.");
-    setTimeout(() => setPresetFeedback(null), 3000);
-  };
-  
-  // Video Global Aspect Ratio State
-  const [videoAspectRatio, setVideoAspectRatio] = useState<"16:9" | "9:16" | "1:1" | "4:3">("16:9");
-
-  // Export Resolution State
-  const [exportResolution, setExportResolution] = useState<"720p" | "1080p" | "4k" | "8k">("1080p");
-
-  // Export Format State (WebM vs highly-compatible MP4)
-  const [exportFormat, setExportFormat] = useState<"webm" | "mp4">("mp4");
-
-  // Subtitle / Caption Global State
-  const [globalShowSubtitles, setGlobalShowSubtitles] = useState<boolean>(true);
-
-  // Styles & Presets Studio States
-  const [customPresets, setCustomPresets] = useState<StylePreset[]>(() => {
-    try {
-      const saved = localStorage.getItem("cinematic_custom_presets");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch (e) {
-      console.error("Error reading custom presets from localStorage", e);
-    }
-    return [];
-  });
-  const [newPresetName, setNewPresetName] = useState<string>("");
-  const [presetFeedback, setPresetFeedback] = useState<string | null>(null);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("cinematic_custom_presets", JSON.stringify(customPresets));
-    } catch (e) {
-      console.error("Failed to save custom presets to localStorage", e);
-    }
-  }, [customPresets]);
-
-  const saveCurrentStylesAsPreset = (name: string) => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    const currentSlide = slides[currentIndex];
-    if (!currentSlide) return;
-
-    const newPreset: StylePreset = {
-      id: `preset_${Date.now()}`,
-      name: trimmed,
-      description: `Custom Preset • Created ${new Date().toLocaleDateString()}`,
-      isCustom: true,
-      transition: currentSlide.transition || "zoom",
-      filter: currentSlide.filter || "none",
-      vfxType: currentSlide.vfxType || "none",
-      vfxIntensity: currentSlide.vfxIntensity !== undefined ? currentSlide.vfxIntensity : 50,
-      maskType: currentSlide.maskType || "none",
-      maskRadius: currentSlide.maskRadius,
-      maskFeather: currentSlide.maskFeather,
-      cameraRoll: currentSlide.cameraRoll,
-      cameraPitch: currentSlide.cameraPitch,
-      cameraYaw: currentSlide.cameraYaw,
-      parallaxEnabled: currentSlide.parallaxEnabled,
-      parallaxStrength: currentSlide.parallaxStrength,
-      motionSpeed: currentSlide.motionSpeed,
-      motionAngle: currentSlide.motionAngle
-    };
-
-    setCustomPresets(prev => [newPreset, ...prev]);
-    setNewPresetName("");
-    setPresetFeedback(`Style preset "${trimmed}" successfully saved!`);
-    setTimeout(() => setPresetFeedback(null), 4000);
-  };
-
-  const loadPreset = (preset: StylePreset, applyToAll: boolean) => {
-    if (slides.length === 0) return;
-
-    if (applyToAll) {
-      const updated = slides.map(slide => ({
-        ...slide,
-        transition: preset.transition,
-        filter: preset.filter,
-        vfxType: preset.vfxType,
-        vfxIntensity: preset.vfxIntensity,
-        maskType: preset.maskType || "none",
-        maskRadius: preset.maskRadius !== undefined ? preset.maskRadius : slide.maskRadius,
-        maskFeather: preset.maskFeather !== undefined ? preset.maskFeather : slide.maskFeather,
-        cameraRoll: preset.cameraRoll !== undefined ? preset.cameraRoll : slide.cameraRoll,
-        cameraPitch: preset.cameraPitch !== undefined ? preset.cameraPitch : slide.cameraPitch,
-        cameraYaw: preset.cameraYaw !== undefined ? preset.cameraYaw : slide.cameraYaw,
-        parallaxEnabled: preset.parallaxEnabled !== undefined ? preset.parallaxEnabled : slide.parallaxEnabled,
-        parallaxStrength: preset.parallaxStrength !== undefined ? preset.parallaxStrength : slide.parallaxStrength,
-        motionSpeed: preset.motionSpeed !== undefined ? preset.motionSpeed : slide.motionSpeed,
-        motionAngle: preset.motionAngle !== undefined ? preset.motionAngle : slide.motionAngle
-      }));
-      setSlides(updated);
-      setPresetFeedback(`Successfully applied "${preset.name}" to all slides!`);
-    } else {
-      const updated = [...slides];
-      updated[currentIndex] = {
-        ...updated[currentIndex],
-        transition: preset.transition,
-        filter: preset.filter,
-        vfxType: preset.vfxType,
-        vfxIntensity: preset.vfxIntensity,
-        maskType: preset.maskType || "none",
-        maskRadius: preset.maskRadius !== undefined ? preset.maskRadius : updated[currentIndex].maskRadius,
-        maskFeather: preset.maskFeather !== undefined ? preset.maskFeather : updated[currentIndex].maskFeather,
-        cameraRoll: preset.cameraRoll !== undefined ? preset.cameraRoll : updated[currentIndex].cameraRoll,
-        cameraPitch: preset.cameraPitch !== undefined ? preset.cameraPitch : updated[currentIndex].cameraPitch,
-        cameraYaw: preset.cameraYaw !== undefined ? preset.cameraYaw : updated[currentIndex].cameraYaw,
-        parallaxEnabled: preset.parallaxEnabled !== undefined ? preset.parallaxEnabled : updated[currentIndex].parallaxEnabled,
-        parallaxStrength: preset.parallaxStrength !== undefined ? preset.parallaxStrength : updated[currentIndex].parallaxStrength,
-        motionSpeed: preset.motionSpeed !== undefined ? preset.motionSpeed : updated[currentIndex].motionSpeed,
-        motionAngle: preset.motionAngle !== undefined ? preset.motionAngle : updated[currentIndex].motionAngle
-      };
-      setSlides(updated);
-      setPresetFeedback(`Applied "${preset.name}" to the current slide!`);
-    }
-
-    setPreviewToggle(prev => prev + 1);
-    setTimeout(() => setPresetFeedback(null), 4000);
-  };
-
-  const deleteCustomPreset = (id: string) => {
-    setCustomPresets(prev => prev.filter(p => p.id !== id));
-    setPresetFeedback("Custom preset deleted successfully.");
-    setTimeout(() => setPresetFeedback(null), 3000);
-  };
-
-  // Transition Preview Trigger State
-  const [previewToggle, setPreviewToggle] = useState<number>(0);
-
-  // State History Hooks for Undo / Redo
-  const [past, setPast] = useState<VideoSlide[][]>([]);
-  const [future, setFuture] = useState<VideoSlide[][]>([]);
-  const isUndoRedoActionRef = useRef<boolean>(false);
-  const prevSlidesRef = useRef<VideoSlide[]>(getInitialSlides());
-
-  // Auto-sync slides to localStorage whenever they change
-  useEffect(() => {
-    try {
-      localStorage.setItem("cinematic_slides_data", JSON.stringify(slides));
-    } catch (e: any) {
-      if (e.name === "QuotaExceededError" || e.code === 22 || e.name === "NS_ERROR_DOM_QUOTA_REACHED") {
-        console.warn("LocalStorage quota exceeded for slides. Trying to clear custom assets first to make room...");
-        try {
-          const gallery = localStorage.getItem("cinematic_asset_gallery");
-          if (gallery) {
-            const parsed = JSON.parse(gallery);
-            if (Array.isArray(parsed) && parsed.length > 5) {
-              const pruned = parsed.slice(0, 5);
-              localStorage.setItem("cinematic_asset_gallery", JSON.stringify(pruned));
-              setGalleryAssets(pruned);
-              
-              // Retry saving slides
-              localStorage.setItem("cinematic_slides_data", JSON.stringify(slides));
-              setPresetFeedback("Storage space freed. Stored gallery assets were cleared/pruned to save your project slides.");
-              setTimeout(() => setPresetFeedback(null), 5000);
-              return;
-            }
-          }
-        } catch (err) {
-          console.error("Failed to prune gallery for slides", err);
-        }
-        console.error("Failed to save slides even after clearing gallery space.", e);
-      } else {
-        console.error("Failed to save slides to localStorage", e);
-      }
-    }
-  }, [slides]);
-
-  // Intercept changes to slides to automatically save history
-  useEffect(() => {
-    if (isUndoRedoActionRef.current) {
-      isUndoRedoActionRef.current = false;
-      prevSlidesRef.current = slides;
-      return;
-    }
-
-    const currentStr = JSON.stringify(slides);
-    const prevStr = JSON.stringify(prevSlidesRef.current);
-
-    if (currentStr !== prevStr) {
-      // If we have an existing previous state, save it to history
-      if (prevSlidesRef.current && (prevSlidesRef.current.length > 0 || slides.length > 0)) {
-        setPast((prevPast) => [...prevPast.slice(-29), prevSlidesRef.current]);
-        setFuture([]); // Reset redo stack on new user action
-      }
-      prevSlidesRef.current = slides;
-    }
-  }, [slides]);
-
-  // Undo Action
-  const handleUndo = useCallback(() => {
-    if (past.length === 0) return;
-    isUndoRedoActionRef.current = true;
-
-    const previous = past[past.length - 1];
-    const newPast = past.slice(0, past.length - 1);
-
-    setPast(newPast);
-    setFuture((prevFuture) => [slides, ...prevFuture]);
-    setSlides(previous);
-
-    // Keep active indices in bounds
-    if (previous.length > 0) {
-      setCurrentIndex((prevIdx) => Math.min(prevIdx, previous.length - 1));
-    } else {
-      setCurrentIndex(0);
-    }
-  }, [past, slides]);
-
-  // Redo Action
-  const handleRedo = useCallback(() => {
-    if (future.length === 0) return;
-    isUndoRedoActionRef.current = true;
-
-    const next = future[0];
-    const newFuture = future.slice(1);
-
-    setPast((prevPast) => [...prevPast, slides]);
-    setFuture(newFuture);
-    setSlides(next);
-
-    if (next.length > 0) {
-      setCurrentIndex((prevIdx) => Math.min(prevIdx, next.length - 1));
-    } else {
-      setCurrentIndex(0);
-    }
-  }, [future, slides]);
-
-  // Keyboard Shortcuts for Undo/Redo
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const activeEl = document.activeElement;
-      if (
-        activeEl &&
-        (activeEl.tagName === "INPUT" ||
-          activeEl.tagName === "TEXTAREA" ||
-          (activeEl as HTMLElement).isContentEditable)
-      ) {
-        return; // Don't interrupt native input undo/redo
-      }
-
-      const isModKey = e.ctrlKey || e.metaKey;
-
-      if (isModKey && !e.altKey) {
-        const key = e.key.toLowerCase();
-        if (key === "z") {
-          e.preventDefault();
-          if (e.shiftKey) {
-            handleRedo();
-          } else {
-            handleUndo();
-          }
-        } else if (key === "y") {
-          e.preventDefault();
-          handleRedo();
-        }
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [handleUndo, handleRedo]);
-
-  // Video Playback State
-  const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [progress, setProgress] = useState<number>(0);
-  
-  // Custom Song / Background Music State
-  const [isMuted, setIsMuted] = useState<boolean>(false);
-  const [uploadedAudioSrc, setUploadedAudioSrc] = useState<string>("");
-  const [uploadedAudioName, setUploadedAudioName] = useState<string>("");
-  const [uploadedAudioVolume, setUploadedAudioVolume] = useState<number>(100);
-
-  // Secondary Voice-Over Track State
-  const [voSrc, setVoSrc] = useState<string>("");
-  const [voName, setVoName] = useState<string>("");
-  const [voVolume, setVoVolume] = useState<number>(100);
-
-  const [synthesizer] = useState(() => new CollegeMelodyGenerator());
-  const [activeSoundtrackType, setActiveSoundtrackType] = useState<"none" | "synth" | "custom">("none");
-  
-  // Custom Song duration & Auto-Sync State
-  const [customAudioDuration, setCustomAudioDuration] = useState<number | null>(null);
-  const [autoSyncToSong, setAutoSyncToSong] = useState<boolean>(false);
-
-  // Parse and track custom audio duration dynamically when uploaded
-  useEffect(() => {
-    if (uploadedAudioSrc) {
-      const audioObj = new Audio(uploadedAudioSrc);
-      const handleLoadedMetadata = () => {
-        setCustomAudioDuration(audioObj.duration);
-      };
-      audioObj.addEventListener("loadedmetadata", handleLoadedMetadata);
-      return () => {
-        audioObj.removeEventListener("loadedmetadata", handleLoadedMetadata);
-      };
-    } else {
-      setCustomAudioDuration(null);
-    }
-  }, [uploadedAudioSrc]);
-
-  // Synchronize slide lengths to match the background audio duration perfectly
-  const syncVideoDurationToAudio = (songDur: number) => {
-    if (slides.length === 0 || !songDur) return;
-    const syncDuration = Math.round((songDur / slides.length) * 100) / 100;
-    const clampedDuration = Math.max(0.5, Math.min(30, syncDuration));
-    setSlides(prev => prev.map(s => ({ ...s, duration: clampedDuration })));
-  };
-
-  // Auto-sync side effect: runs whenever slides length or audio duration changes and auto-sync is on
-  useEffect(() => {
-    if (autoSyncToSong && customAudioDuration && slides.length > 0) {
-      const syncDuration = Math.round((customAudioDuration / slides.length) * 100) / 100;
-      const clampedDuration = Math.max(0.5, Math.min(30, syncDuration));
-      
-      const needsUpdate = slides.some(s => s.duration !== clampedDuration);
-      if (needsUpdate) {
-        setSlides(prev => prev.map(s => ({ ...s, duration: clampedDuration })));
-      }
-    }
-  }, [autoSyncToSong, customAudioDuration, slides.length]);
-
-  // Audio Fading States
-  const [audioFadeInDuration, setAudioFadeInDuration] = useState<number>(() => {
-    const saved = localStorage.getItem("cinematic_fade_in_duration");
-    return saved ? Number(saved) : 1.5;
-  });
-  const [audioFadeOutDuration, setAudioFadeOutDuration] = useState<number>(() => {
-    const saved = localStorage.getItem("cinematic_fade_out_duration");
-    return saved ? Number(saved) : 2.0;
-  });
-
-  // Sync fading durations to localStorage
-  useEffect(() => {
-    localStorage.setItem("cinematic_fade_in_duration", String(audioFadeInDuration));
-  }, [audioFadeInDuration]);
-
-  useEffect(() => {
-    localStorage.setItem("cinematic_fade_out_duration", String(audioFadeOutDuration));
-  }, [audioFadeOutDuration]);
-
-  // Drag-and-drop state
-  const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
-
-  // Export State
-  const [isExporting, setIsExporting] = useState<boolean>(false);
-  const [exportProgress, setExportProgress] = useState<number>(0);
-  const [exportStatusText, setExportStatusText] = useState<string>("");
-  const [exportTimeRemaining, setExportTimeRemaining] = useState<number | null>(null);
-
-  // Refs
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const audioInputRef = useRef<HTMLInputElement>(null);
-  const voInputRef = useRef<HTMLInputElement>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const voRef = useRef<HTMLAudioElement | null>(null);
-  const progressIntervalRef = useRef<any>(null);
-
-  // Synchronize audio playback with video state
-  useEffect(() => {
-    if (isPlaying && !isMuted) {
-      if (activeSoundtrackType === "custom" && uploadedAudioSrc) {
-        synthesizer.stop();
-        if (audioRef.current) {
-          audioRef.current.play().catch((err) => console.log("Audio playback delayed:", err));
-        }
-      } else if (activeSoundtrackType === "synth") {
-        if (audioRef.current) audioRef.current.pause();
-        synthesizer.start();
-      }
-
-      if (voSrc && voRef.current) {
-        voRef.current.play().catch((err) => console.log("VO playback delayed:", err));
-      }
-    } else {
-      synthesizer.stop();
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-      if (voRef.current) {
-        voRef.current.pause();
-      }
-    }
-    return () => {
-      synthesizer.stop();
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-      if (voRef.current) {
-        voRef.current.pause();
-      }
-    };
-  }, [isPlaying, isMuted, activeSoundtrackType, uploadedAudioSrc, voSrc]);
-
-  // Dynamic Volume Adjuster (Volume fade-in, fade-out, individual slide volumes)
-  useEffect(() => {
-    if (!isPlaying) {
-      synthesizer.volumeMultiplier = isMuted ? 0 : 1.0;
-      if (audioRef.current) {
-        audioRef.current.volume = isMuted ? 0 : (uploadedAudioVolume / 100);
-      }
-      if (voRef.current) {
-        voRef.current.volume = isMuted ? 0 : (voVolume / 100);
-      }
-      return;
-    }
-
-    if (isMuted) {
-      synthesizer.volumeMultiplier = 0;
-      if (audioRef.current) {
-        audioRef.current.volume = 0;
-      }
-      if (voRef.current) {
-        voRef.current.volume = 0;
-      }
-      return;
-    }
-
-    const currentSlide = slides[currentIndex];
-    if (!currentSlide) return;
-
-    // Calculate elapsed time of entire slideshow
-    const totalSlideshowDuration = slides.reduce((acc, curr) => acc + (curr.duration || 3), 0);
-    const currentSlideDuration = currentSlide.duration || 3;
-    const currentSlideElapsedTime = (progress / 100) * currentSlideDuration;
-
-    let slideshowElapsedTime = 0;
-    for (let i = 0; i < currentIndex; i++) {
-      slideshowElapsedTime += (slides[i].duration || 3);
-    }
-    slideshowElapsedTime += currentSlideElapsedTime;
-
-    // 1. Slide-specific volume adjustment
-    const slideVolumeMultiplier = currentSlide.volume !== undefined ? currentSlide.volume / 100 : 1.0;
-
-    // 2. Fade-in multiplier at the beginning of slideshow
-    let fadeInMultiplier = 1.0;
-    if (audioFadeInDuration > 0) {
-      fadeInMultiplier = Math.min(1.0, slideshowElapsedTime / audioFadeInDuration);
-    }
-
-    // 3. Fade-out multiplier at the end of slideshow
-    let fadeOutMultiplier = 1.0;
-    if (audioFadeOutDuration > 0) {
-      const remainingTime = totalSlideshowDuration - slideshowElapsedTime;
-      fadeOutMultiplier = Math.min(1.0, Math.max(0, remainingTime / audioFadeOutDuration));
-    }
-
-    const calculatedVolume = Math.max(0, Math.min(1, slideVolumeMultiplier * fadeInMultiplier * fadeOutMultiplier));
-
-    // Apply calculated volume
-    if (activeSoundtrackType === "custom" && audioRef.current) {
-      audioRef.current.volume = calculatedVolume * (uploadedAudioVolume / 100);
-    } else if (activeSoundtrackType === "synth") {
-      synthesizer.volumeMultiplier = calculatedVolume;
-    }
-
-    if (voRef.current) {
-      voRef.current.volume = calculatedVolume * (voVolume / 100);
-    }
-  }, [
-    isPlaying,
-    isMuted,
-    activeSoundtrackType,
-    currentIndex,
-    progress,
-    slides,
-    audioFadeInDuration,
-    audioFadeOutDuration,
-    synthesizer,
-    uploadedAudioVolume,
-    voVolume
-  ]);
-
-  // Synchronize dynamic preview slides transition timer
-  useEffect(() => {
-    if (!isPlaying || slides.length === 0) {
-      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
-      return;
-    }
-
-    const currentSlide = slides[currentIndex];
-    if (!currentSlide) return;
-
-    const durationMs = (currentSlide.duration || 3) * 1000;
-    const startTimestamp = Date.now();
-
-    // Reset progress for active slide frame
-    setProgress(0);
-
-    progressIntervalRef.current = setInterval(() => {
-      const elapsed = Date.now() - startTimestamp;
-      const pct = Math.min(100, (elapsed / durationMs) * 100);
-      setProgress(pct);
-
-      if (elapsed >= durationMs) {
-        clearInterval(progressIntervalRef.current);
-        // Step to next slide or loop
-        setCurrentIndex((prev) => (prev + 1) % slides.length);
-      }
-    }, 40);
-
-    return () => {
-      if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
-    };
-  }, [isPlaying, currentIndex, slides]);
-
-  // Bulk Image Upload Handler
-  const processUploadedFiles = async (files: FileList) => {
-    const imageFiles = (Array.from(files) as File[]).filter(f => f.type.startsWith("image/") || f.type.startsWith("video/"));
-    if (imageFiles.length === 0) return;
-
-    try {
-      const processedResults = await Promise.all(
-        imageFiles.map(async (file, index) => {
-          const isVideo = file.type.startsWith("video/");
-          
-          try {
-            let dataUrl = "";
-            if (isVideo) {
-              dataUrl = URL.createObjectURL(file);
-            } else {
-              dataUrl = await compressImage(file);
-            }
-            // Pick creative random transitions for smooth visual variation
-            const transitions: Array<VideoSlide["transition"]> = [
-              "zoom", "panLeft", "panRight", "slideUp", "slideLeft", "slideRight", "blurFade", "retroSpin"
-            ];
-            const transition = transitions[index % transitions.length];
-
-            // Format a human-readable name without file extension
-            const prettyName = file.name.replace(/\.[^/.]+$/, "").substring(0, 20);
-
-            return {
-              id: `slide_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 5)}`,
-              url: dataUrl,
-              name: file.name,
-              duration: isVideo ? 10 : 3, // Default longer duration for videos
-              transition,
-              caption: `${prettyName} Memory`,
-              fitMode: "cover",
-              zoomMultiplier: 1.0,
-              showSubtitle: true,
-              mediaType: isVideo ? "video" : "image",
-              trimStart: 0,
-              trimEnd: isVideo ? 10 : 0
-            } as VideoSlide;
-          } catch (err) {
-            console.error(`Error compressing image ${file.name}`, err);
-            // Fallback to reading raw file if compression fails
-            return new Promise<VideoSlide | null>((resolve) => {
-              if (isVideo) {
-                const dataUrl = URL.createObjectURL(file);
-                const transitions: Array<VideoSlide["transition"]> = [
-                  "zoom", "panLeft", "panRight", "slideUp", "slideLeft", "slideRight", "blurFade", "retroSpin"
-                ];
-                const transition = transitions[index % transitions.length];
-                const prettyName = file.name.replace(/\.[^/.]+$/, "").substring(0, 20);
-                resolve({
-                  id: `slide_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 5)}`,
-                  url: dataUrl,
-                  name: file.name,
-                  duration: 10,
-                  transition,
-                  caption: `${prettyName} Memory`,
-                  fitMode: "cover",
-                  zoomMultiplier: 1.0,
-                  showSubtitle: true,
-                  mediaType: "video",
-                  trimStart: 0,
-                  trimEnd: 10
-                });
-                return;
-              }
-              const reader = new FileReader();
-              reader.onload = (event) => {
-                const dataUrl = event.target?.result as string;
-                const transitions: Array<VideoSlide["transition"]> = [
-                  "zoom", "panLeft", "panRight", "slideUp", "slideLeft", "slideRight", "blurFade", "retroSpin"
-                ];
-                const transition = transitions[index % transitions.length];
-                const prettyName = file.name.replace(/\.[^/.]+$/, "").substring(0, 20);
-                resolve({
-                  id: `slide_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 5)}`,
-                  url: dataUrl,
-                  name: file.name,
-                  duration: 3,
-                  transition,
-                  caption: `${prettyName} Memory`,
-                  fitMode: "cover",
-                  zoomMultiplier: 1.0,
-                  showSubtitle: true,
-                  mediaType: "image"
-                });
-              };
-              reader.onerror = () => resolve(null);
-              reader.readAsDataURL(file);
-            });
-          }
-        })
-      );
-
-      const validSlides = processedResults.filter((s): s is VideoSlide => s !== null);
-      if (validSlides.length === 0) return;
-
-      // Sync with Asset Gallery
-      const newAssets: GalleryAsset[] = validSlides.map((slide) => ({
-        id: `asset_${slide.id}`,
-        url: slide.url,
-        name: slide.name,
-        addedAt: Date.now()
-      }));
-
-      setGalleryAssets(prev => {
-        const existingUrls = new Set(prev.map(a => a.url));
-        const filteredNew = newAssets.filter(a => !existingUrls.has(a.url));
-        return [...filteredNew, ...prev];
-      });
-
-      setSlides(prev => {
-        const combined = [...prev, ...validSlides];
-        // If we previously had no slides, select the first one
-        if (prev.length === 0 && combined.length > 0) {
-          setSelectedSlideId(combined[0].id);
-          setCurrentIndex(0);
-        }
-        return combined;
-      });
-    } catch (e) {
-      console.error("Error processing uploaded files:", e);
-    }
-  };
-
-  const handleImageFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      processUploadedFiles(e.target.files);
-    }
-  };
-
-  // Drag and Drop Zone Handlers
-  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDraggingOver(true);
-  };
-
-  const handleDragLeave = () => {
-    setIsDraggingOver(false);
-  };
-
-  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDraggingOver(false);
-
-    // Check if dragging an asset from our library
-    const assetUrl = e.dataTransfer.getData("text/plain");
-    const assetName = e.dataTransfer.getData("application/x-asset-name") || "Library Photo";
-    
-    if (assetUrl && (assetUrl.startsWith("http") || assetUrl.startsWith("data:image"))) {
-      const transitions: Array<VideoSlide["transition"]> = [
-        "zoom", "panLeft", "panRight", "slideUp", "slideLeft", "slideRight", "blurFade", "retroSpin"
-      ];
-      const transition = transitions[slides.length % transitions.length];
-      const prettyName = assetName.replace(/\.[^/.]+$/, "").substring(0, 20);
-      
-      const newSlide: VideoSlide = {
-        id: `slide_asset_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-        url: assetUrl,
-        name: assetName,
-        duration: 3,
-        transition,
-        caption: `${prettyName} Memory`,
-        fitMode: "cover",
-        zoomMultiplier: 1.0,
-        showSubtitle: true
-      };
-      
-      setSlides(prev => {
-        const combined = [...prev, newSlide];
-        if (prev.length === 0) {
-          setSelectedSlideId(newSlide.id);
-          setCurrentIndex(0);
-        }
-        return combined;
-      });
-      return;
-    }
-
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      processUploadedFiles(e.dataTransfer.files);
-    }
-  };
-
-  // --- ASSET GALLERY CORE HELPERS ---
-
-  // Handle uploading photos directly into the Asset Gallery sidebar
-  const handleAssetUpload = async (e: ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files) return;
-    const files = (Array.from(e.target.files) as File[]).filter(f => f.type.startsWith("image/") || f.type.startsWith("video/"));
-    if (files.length === 0) return;
-
-    try {
-      const processedResults = await Promise.all(
-        files.map(async (file, index) => {
-          const isVideo = file.type.startsWith("video/");
-          try {
-            let dataUrl = "";
-            if (isVideo) {
-              dataUrl = URL.createObjectURL(file);
-            } else {
-              dataUrl = await compressImage(file);
-            }
-            return {
-              id: `asset_upload_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 5)}`,
-              url: dataUrl,
-              name: file.name,
-              addedAt: Date.now(),
-              mediaType: isVideo ? "video" : "image"
-            } as GalleryAsset;
-          } catch (err) {
-            console.error(`Error compressing gallery image ${file.name}`, err);
-            return new Promise<GalleryAsset | null>((resolve) => {
-              if (isVideo) {
-                resolve({
-                  id: `asset_upload_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 5)}`,
-                  url: URL.createObjectURL(file),
-                  name: file.name,
-                  addedAt: Date.now(),
-                  mediaType: "video"
-                });
-                return;
-              }
-              const reader = new FileReader();
-              reader.onload = (event) => {
-                const dataUrl = event.target?.result as string;
-                resolve({
-                  id: `asset_upload_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 5)}`,
-                  url: dataUrl,
-                  name: file.name,
-                  addedAt: Date.now(),
-                  mediaType: "image"
-                });
-              };
-              reader.onerror = () => resolve(null);
-              reader.readAsDataURL(file);
-            });
-          }
-        })
-      );
-
-      const validAssets = processedResults.filter((a): a is GalleryAsset => a !== null);
-      if (validAssets.length > 0) {
-        setGalleryAssets(prev => [...validAssets, ...prev]);
-      }
-    } catch (err) {
-      console.error("Error uploading assets:", err);
-    }
-  };
-
-  // Re-ordering within the Asset Gallery via HTML5 Drag & Drop
-  const handleDragStartAsset = (e: React.DragEvent, index: number) => {
-    setDraggedAssetIdx(index);
-    e.dataTransfer.effectAllowed = "copyMove";
-    const asset = galleryAssets[index];
-    e.dataTransfer.setData("text/plain", asset.url);
-    e.dataTransfer.setData("application/x-asset-id", asset.id);
-    e.dataTransfer.setData("application/x-asset-name", asset.name);
-  };
-
-  const handleDragOverAsset = (e: React.DragEvent, index: number) => {
-    e.preventDefault();
-    if (draggedAssetIdx === null || draggedAssetIdx === index) return;
-    
-    const updated = [...galleryAssets];
-    const [moved] = updated.splice(draggedAssetIdx, 1);
-    updated.splice(index, 0, moved);
-    setDraggedAssetIdx(index);
-    setGalleryAssets(updated);
-  };
-
-  const handleDropAsset = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDraggedAssetIdx(null);
-  };
-
-  const handleDragEndAsset = () => {
-    setDraggedAssetIdx(null);
-  };
-
-  // Manual Arrow Button Re-ordering (for fallback & high accessibility)
-  const moveAssetInGallery = (index: number, direction: "up" | "down") => {
-    if (direction === "up" && index === 0) return;
-    if (direction === "down" && index === galleryAssets.length - 1) return;
-    
-    const targetIndex = direction === "up" ? index - 1 : index + 1;
-    const updated = [...galleryAssets];
-    const temp = updated[index];
-    updated[index] = updated[targetIndex];
-    updated[targetIndex] = temp;
-    setGalleryAssets(updated);
-  };
-
-  // Batch Select Toggle for single item
-  const toggleAssetSelection = (id: string) => {
-    setSelectedAssetIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  };
-
-  // Select All/Deselect All Utility
-  const selectAllAssets = () => {
-    if (selectedAssetIds.size === galleryAssets.length) {
-      setSelectedAssetIds(new Set());
-    } else {
-      setSelectedAssetIds(new Set(galleryAssets.map(a => a.id)));
-    }
-  };
-
-  // Append a single gallery photo to the project timeline
-  const addAssetToProject = (asset: GalleryAsset) => {
-    const transitions: Array<VideoSlide["transition"]> = [
-      "zoom", "panLeft", "panRight", "slideUp", "slideLeft", "slideRight", "blurFade", "retroSpin"
-    ];
-    const transition = transitions[slides.length % transitions.length];
-    const prettyName = asset.name.replace(/\.[^/.]+$/, "").substring(0, 20);
-    
-    const newSlide: VideoSlide = {
-      id: `slide_asset_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-      url: asset.url,
-      name: asset.name,
-      duration: 3,
-      transition,
-      caption: `${prettyName} Memory`,
-      fitMode: "cover",
-      zoomMultiplier: 1.0,
-      showSubtitle: true
-    };
-    
-    setSlides(prev => {
-      const combined = [...prev, newSlide];
-      if (prev.length === 0) {
-        setSelectedSlideId(newSlide.id);
-        setCurrentIndex(0);
-      }
-      return combined;
-    });
-    
-    setPresetFeedback(`Added "${prettyName}" to the project timeline!`);
-    setTimeout(() => setPresetFeedback(null), 3000);
-  };
-
-  // Append batch-selected photos to the project timeline
-  const addSelectedAssetsToProject = () => {
-    if (selectedAssetIds.size === 0) return;
-    
-    const selectedAssets = galleryAssets.filter(a => selectedAssetIds.has(a.id));
-    const newSlidesList: VideoSlide[] = [];
-    
-    selectedAssets.forEach((asset, index) => {
-      const transitions: Array<VideoSlide["transition"]> = [
-        "zoom", "panLeft", "panRight", "slideUp", "slideLeft", "slideRight", "blurFade", "retroSpin"
-      ];
-      const transition = transitions[(slides.length + index) % transitions.length];
-      const prettyName = asset.name.replace(/\.[^/.]+$/, "").substring(0, 20);
-      
-      newSlidesList.push({
-        id: `slide_asset_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 5)}`,
-        url: asset.url,
-        name: asset.name,
-        duration: 3,
-        transition,
-        caption: `${prettyName} Memory`,
-        fitMode: "cover",
-        zoomMultiplier: 1.0,
-        showSubtitle: true
-      });
-    });
-    
-    setSlides(prev => {
-      const combined = [...prev, ...newSlidesList];
-      if (prev.length === 0 && combined.length > 0) {
-        setSelectedSlideId(combined[0].id);
-        setCurrentIndex(0);
-      }
-      return combined;
-    });
-    
-    setSelectedAssetIds(new Set());
-    setPresetFeedback(`Successfully added ${selectedAssets.length} selected photos to the timeline!`);
-    setTimeout(() => setPresetFeedback(null), 4000);
-  };
-
-  // Delete a photo from stored gallery assets
-  const deleteAssetFromGallery = (id: string) => {
-    setGalleryAssets(prev => prev.filter(a => a.id !== id));
-    setSelectedAssetIds(prev => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-  };
-
-  // Drag-and-drop target to replace the image of a specific slide
-  const handleDropOnSlide = (e: React.DragEvent, targetIdx: number) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const assetUrl = e.dataTransfer.getData("text/plain");
-    const assetName = e.dataTransfer.getData("application/x-asset-name") || "Library Photo";
-    if (assetUrl && (assetUrl.startsWith("http") || assetUrl.startsWith("data:image"))) {
-      setSlides(prev => {
-        const copy = [...prev];
-        if (copy[targetIdx]) {
-          copy[targetIdx] = {
-            ...copy[targetIdx],
-            url: assetUrl,
-            name: assetName
-          };
-        }
-        return copy;
-      });
-      setPresetFeedback(`Replaced slide #${targetIdx + 1} with dropped gallery photo.`);
-      setTimeout(() => setPresetFeedback(null), 3000);
-    }
-  };
-
-  // Custom Audio Song Upload
-  const handleAudioUploadChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setUploadedAudioName(file.name);
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64Str = event.target?.result as string;
-      setUploadedAudioSrc(base64Str);
-      setActiveSoundtrackType("custom");
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleVoUploadChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setVoName(file.name);
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64Str = event.target?.result as string;
-      setVoSrc(base64Str);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  // Load Preset Demo slides (above 20 high-fidelity images for gorgeous presentation)
-  const loadDemoProject = () => {
-    const demoKeywords = [
-      "campus", "graduation", "library", "friends", "classroom", 
-      "party", "concert", "nature", "travel", "sunset", 
-      "cafe", "coding", "sports", "laughing", "roadtrip", 
-      "campfire", "stadium", "festival", "summer", "hiking", 
-      "autumn", "winter"
-    ];
-
-    const demoTransitions: Array<VideoSlide["transition"]> = [
-      "zoom", "panLeft", "panRight", "slideUp", "slideLeft", "slideRight", "blurFade", "retroSpin"
-    ];
-
-    const demoSlides: VideoSlide[] = demoKeywords.map((kw, idx) => ({
-      id: `demo_${idx}`,
-      url: `https://images.unsplash.com/photo-${[
-        "1523050854058-8df90110c9f1", // campus
-        "1541339907198-e08756dedf3f", // graduation
-        "1506784983877-45594efa4cbe", // library
-        "1511671782779-c97d3d27a1d4", // concert
-        "1517486808906-6ca8b3f04846", // party
-        "1529156069898-49953e39b3ac", // friends
-        "1515187029135-18ee286d815b", // class
-        "1501504905252-473c47e087f8", // coding
-        "1513151233558-d860c5398176", // party lights
-        "1516450360452-9312f5e86fc7", // concert stage
-        "1522071820081-009f0129c71c", // office meeting
-        "1531482615713-2afd69097998", // campus lounge
-        "1543269865-cbf427effbad", // friends hugging
-        "1529070538774-1843cb3265df", // campfire
-        "1491438590914-bc09fcaaf77a", // roadtrip
-        "1475483768296-8980ae175189", // stadium
-        "1464822759023-fed622ff2c3b", // mountain hiking
-        "1502082553048-f009c37129b9", // autumn trees
-        "1483728642387-6c3bdd6c93e5", // winter sports
-        "1500648767791-00dcc994a43e", // portrait 1
-        "1534528741775-53994a69daeb", // portrait 2
-        "1507003211169-0a1dd7228f2d"  // portrait 3
-      ][idx % 22]}?auto=format&fit=crop&w=600&q=80`,
-      name: `${kw}.jpg`,
-      duration: idx % 3 === 0 ? 4 : 3,
-      transition: demoTransitions[idx % demoTransitions.length],
-      caption: `Unforgettable college moments in the ${kw} scene`,
-      fitMode: "cover",
-      zoomMultiplier: 1.0,
-      showSubtitle: true
-    }));
-
-    setSlides(demoSlides);
-    setSelectedSlideId(demoSlides[0].id);
-    setCurrentIndex(0);
-    setActiveSoundtrackType("synth");
-
-    // Populate Asset Gallery with these demo slides as well
-    const demoAssets: GalleryAsset[] = demoSlides.map((s, idx) => ({
-      id: `asset_demo_${idx}_${Date.now()}`,
-      url: s.url,
-      name: s.name,
-      addedAt: Date.now() - idx * 1000
-    }));
-    setGalleryAssets(demoAssets);
-  };
-
-  // Duplicate an existing slide for advanced editing
-  const duplicateSlide = (slide: VideoSlide, idx: number) => {
-    const copy: VideoSlide = {
-      ...slide,
-      id: `copy_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-      caption: `${slide.caption} (Copy)`
-    };
-    const updated = [...slides];
-    updated.splice(idx + 1, 0, copy);
-    setSlides(updated);
-  };
-
-  // Rearrange slides (Move left or right)
-  const moveSlide = (index: number, direction: "left" | "right") => {
-    if (direction === "left" && index === 0) return;
-    if (direction === "right" && index === slides.length - 1) return;
-
-    const targetIndex = direction === "left" ? index - 1 : index + 1;
-    const updated = [...slides];
-    const temp = updated[index];
-    updated[index] = updated[targetIndex];
-    updated[targetIndex] = temp;
-
-    setSlides(updated);
-    if (currentIndex === index) {
-      setCurrentIndex(targetIndex);
-    } else if (currentIndex === targetIndex) {
-      setCurrentIndex(index);
-    }
-  };
-
-  const bulkApplyTransitions = (transitionType: VideoSlide["transition"]) => {
-    if (checkedSlideIds.size === 0) {
-      setSlides(prev => prev.map(s => ({ ...s, transition: transitionType })));
-      setPresetFeedback(`Applied transition to all ${slides.length} frames.`);
-    } else {
-      setSlides(prev => prev.map(s => {
-        if (checkedSlideIds.has(s.id)) {
-          return { ...s, transition: transitionType };
-        }
-        return s;
-      }));
-      setPresetFeedback(`Applied transition to ${checkedSlideIds.size} frames.`);
-    }
-    setTimeout(() => setPresetFeedback(null), 3500);
-  };
-
-  const shuffleCheckedTransitions = () => {
-    const transitions: Array<VideoSlide["transition"]> = [
-      "zoom", "zoomOut", "panLeft", "panRight", "tiltUp", "tiltDown", 
-      "slideUp", "slideLeft", "slideRight", "blurFade", "retroSpin", 
-      "vortex", "glitch", "fadeOnly"
-    ];
-    if (checkedSlideIds.size === 0) {
-      setSlides(prev => prev.map(s => {
-        const randomStyle = transitions[Math.floor(Math.random() * transitions.length)];
-        return { ...s, transition: randomStyle };
-      }));
-      setPresetFeedback(`Shuffled transitions for all ${slides.length} frames.`);
-    } else {
-      setSlides(prev => prev.map(s => {
-        if (checkedSlideIds.has(s.id)) {
-          const randomStyle = transitions[Math.floor(Math.random() * transitions.length)];
-          return { ...s, transition: randomStyle };
-        }
-        return s;
-      }));
-      setPresetFeedback(`Shuffled transitions for ${checkedSlideIds.size} frames.`);
-    }
-    setTimeout(() => setPresetFeedback(null), 3500);
-  };
-
-  const bulkApplyDurations = (sec: number) => {
-    setSlides(prev => prev.map(s => ({ ...s, duration: sec })));
-  };
-
-  // HD High-Fidelity Video Compiler & Export Engine
-  const exportHighDefinitionVideo = async () => {
-    if (slides.length === 0) return;
-    setIsExporting(true);
-    setExportProgress(0);
-    setExportStatusText("Compiling frames...");
-    setIsPlaying(false);
-
-    let audioCtx: AudioContext | null = null;
-    let activeAudioElement: HTMLAudioElement | null = null;
-
-    // Estimate initial remaining time based on slides count and resolution
-    const totalFramesToRender = slides.reduce((acc, s) => acc + Math.round((s.duration || 3) * 30), 0);
-    let estimatedMsPerFrame = 35; // default 720p
-    if (exportResolution === "1080p") {
-      estimatedMsPerFrame = 48;
-    } else if (exportResolution === "4k") {
-      estimatedMsPerFrame = 110;
-    } else if (exportResolution === "8k") {
-      estimatedMsPerFrame = 320;
-    }
-    let transcodeOverheadSeconds = 0;
-    if (exportFormat === "mp4") {
-      transcodeOverheadSeconds = 3 + slides.length * 1.5;
-    }
-    const initialEstimatedSeconds = Math.ceil((totalFramesToRender * estimatedMsPerFrame) / 1000) + transcodeOverheadSeconds;
-    setExportTimeRemaining(initialEstimatedSeconds);
-
-    try {
-      setExportStatusText("Pre-loading slideshow media...");
-      const loadedImages: (HTMLImageElement | HTMLVideoElement)[] = [];
-      for (let i = 0; i < slides.length; i++) {
-        const activeSlide = slides[i];
-        if (activeSlide.mediaType === "video") {
-          const vid = document.createElement("video");
-          vid.crossOrigin = "anonymous";
-          vid.muted = true;
-          vid.playsInline = true;
-          vid.preload = "auto";
-          await new Promise<void>((resolve) => {
-            vid.onloadeddata = () => resolve();
-            vid.onerror = () => resolve();
-            vid.src = activeSlide.url;
-            vid.load();
-          });
-          loadedImages.push(vid);
-        } else {
-          const img = new Image();
-          img.crossOrigin = "anonymous";
-          await new Promise<void>((resolve) => {
-            img.onload = () => resolve();
-            img.onerror = () => {
-              console.warn(`Failed to preload image: ${activeSlide.url}`);
-              resolve();
-            };
-            img.src = activeSlide.url;
-          });
-          loadedImages.push(img);
-        }
-      }
-
-      setExportStatusText("Compiling frames...");
-
-      const canvas = document.createElement("canvas");
-      canvas.id = "cinematic-export-canvas";
-      
-      // Crucial Fix: In Chromium-based browsers, canvas.captureStream() on an offscreen canvas
-      // that is not appended to the DOM can fail or yield blank/empty frames.
-      // We append it to the DOM styled as fully hidden offscreen.
-      canvas.style.position = "fixed";
-      canvas.style.left = "-99999px";
-      canvas.style.top = "-99999px";
-      canvas.style.width = "400px";
-      canvas.style.height = "225px";
-      canvas.style.opacity = "0.01";
-      canvas.style.pointerEvents = "none";
-      canvas.style.zIndex = "-9999";
-      document.body.appendChild(canvas);
-
-      // Choose dimensions based on selected aspect ratio and export resolution preset (720p, 1080p, 4k, 8k)
-      let canvasW = 1920;
-      let canvasH = 1080;
-
-      if (videoAspectRatio === "16:9") {
-        if (exportResolution === "720p") {
-          canvasW = 1280;
-          canvasH = 720;
-        } else if (exportResolution === "1080p") {
-          canvasW = 1920;
-          canvasH = 1080;
-        } else if (exportResolution === "4k") {
-          canvasW = 3840;
-          canvasH = 2160;
-        } else if (exportResolution === "8k") {
-          canvasW = 7680;
-          canvasH = 4320;
-        }
-      } else if (videoAspectRatio === "9:16") {
-        if (exportResolution === "720p") {
-          canvasW = 720;
-          canvasH = 1280;
-        } else if (exportResolution === "1080p") {
-          canvasW = 1080;
-          canvasH = 1920;
-        } else if (exportResolution === "4k") {
-          canvasW = 2160;
-          canvasH = 3840;
-        } else if (exportResolution === "8k") {
-          canvasW = 4320;
-          canvasH = 7680;
-        }
-      } else if (videoAspectRatio === "1:1") {
-        if (exportResolution === "720p") {
-          canvasW = 720;
-          canvasH = 720;
-        } else if (exportResolution === "1080p") {
-          canvasW = 1080;
-          canvasH = 1080;
-        } else if (exportResolution === "4k") {
-          canvasW = 2160;
-          canvasH = 2160;
-        } else if (exportResolution === "8k") {
-          canvasW = 4320;
-          canvasH = 4320;
-        }
-      } else if (videoAspectRatio === "4:3") {
-        if (exportResolution === "720p") {
-          canvasW = 960;
-          canvasH = 720;
-        } else if (exportResolution === "1080p") {
-          canvasW = 1440;
-          canvasH = 1080;
-        } else if (exportResolution === "4k") {
-          canvasW = 2880;
-          canvasH = 2160;
-        } else if (exportResolution === "8k") {
-          canvasW = 5760;
-          canvasH = 4320;
-        }
-      }
-
-      canvas.width = canvasW;
-      canvas.height = canvasH;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Canvas 2D context retrieval failed");
-
-      const stream = canvas.captureStream(30); // 30 Frames Per Second
-      const combinedStream = new MediaStream();
-      
-      // Add video track
-      stream.getVideoTracks().forEach(track => combinedStream.addTrack(track));
-
-      // Setup audio capture based on active soundtrack type
-      let exportDestNode: MediaStreamAudioDestinationNode | null = null;
-      if (activeSoundtrackType === "custom" && uploadedAudioSrc) {
-        try {
-          audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-          exportDestNode = audioCtx.createMediaStreamDestination();
-          
-          // Create a dedicated, temporary HTMLAudioElement for export to avoid CORS issues,
-          // "already connected" exceptions, and playback state interference.
-          const tempAudio = new Audio();
-          tempAudio.src = uploadedAudioSrc;
-          tempAudio.crossOrigin = "anonymous";
-          tempAudio.loop = true;
-          tempAudio.volume = 1.0;
-          activeAudioElement = tempAudio;
-          
-          const sourceNode = audioCtx.createMediaElementSource(tempAudio);
-          sourceNode.connect(audioCtx.destination);
-          sourceNode.connect(exportDestNode);
-          
-          exportDestNode.stream.getAudioTracks().forEach(track => combinedStream.addTrack(track));
-          
-          if (audioCtx.state === "suspended") {
-            await audioCtx.resume();
-          }
-          await tempAudio.play();
-        } catch (err) {
-          console.error("Web Audio API route failed for custom audio export", err);
-        }
-      } else if (activeSoundtrackType === "synth") {
-        try {
-          audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-          exportDestNode = audioCtx.createMediaStreamDestination();
-          
-          if (audioCtx.state === "suspended") {
-            await audioCtx.resume();
-          }
-          
-          synthesizer.start(exportDestNode, audioCtx);
-          exportDestNode.stream.getAudioTracks().forEach(track => combinedStream.addTrack(track));
-        } catch (err) {
-          console.error("Failed to route synthesizer to destination stream", err);
-          synthesizer.start();
-        }
-      }
-
-      // Robust MIME type detection to guarantee recorder doesn't throw unsupported codecs errors
-      let selectedMimeType = "video/webm";
-      const candidates = [
-        "video/webm;codecs=vp9,opus",
-        "video/webm;codecs=vp8,opus",
-        "video/webm;codecs=h264,opus",
-        "video/webm",
-        "video/mp4;codecs=avc1,mp4a.40.2",
-        "video/mp4"
-      ];
-      for (const mime of candidates) {
-        if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(mime)) {
-          selectedMimeType = mime;
-          break;
-        }
-      }
-
-      const recorder = new MediaRecorder(combinedStream, {
-        mimeType: selectedMimeType,
-      });
-
-      const videoChunks: Blob[] = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) videoChunks.push(e.data);
-      };
-
-      recorder.onstop = async () => {
-        // Stop audio playback
-        if (activeAudioElement) {
-          activeAudioElement.pause();
-          activeAudioElement.currentTime = 0;
-        }
-        synthesizer.stop();
-        if (audioCtx) {
-          try {
-            audioCtx.close();
-          } catch (e) {}
+          accumulatedSecs += dur;
         }
 
-        // Clean up canvas element from DOM
-        const el = document.getElementById("cinematic-export-canvas");
-        if (el && el.parentNode) {
-          el.parentNode.removeChild(el);
+        if (activeSlideIdx >= slides.length) {
+          activeSlideIdx = slides.length - 1;
+          slideLocalSecs = slides[activeSlideIdx].duration;
         }
 
-        const rawRecordedBlob = new Blob(videoChunks, { type: selectedMimeType });
-        const recordedIsAlreadyMp4 = selectedMimeType.includes("mp4");
+        const currentSlide = slides[activeSlideIdx];
+        const img = loadedImages[activeSlideIdx];
 
-        // Transcode if target format is mp4 and recorded file is webm
-        if (exportFormat === "mp4" && !recordedIsAlreadyMp4) {
-          setExportStatusText("Converting WebM to highly-compatible MP4...");
-          setExportProgress(98);
-          setExportTimeRemaining(Math.max(2, Math.ceil(transcodeOverheadSeconds * 0.4)));
+        // Clear canvas
+        ctx.fillStyle = "#07050f";
+        ctx.fillRect(0, 0, width, height);
 
-          try {
-            // Upload in 5MB chunks to safely bypass ingress proxy request size limits
-            const CHUNK_SIZE = 5 * 1024 * 1024;
-            setExportStatusText("Initializing MP4 conversion...");
-            const startRes = await fetch("/api/upload/start", { 
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({})
-            });
-            if (!startRes.ok) throw new Error("Failed to start upload session");
-            const { uploadId } = await startRes.json();
-
-            let uploadedBytes = 0;
-            for (let i = 0; i < rawRecordedBlob.size; i += CHUNK_SIZE) {
-              const chunk = rawRecordedBlob.slice(i, i + CHUNK_SIZE);
-              setExportStatusText(`Uploading video chunk ${Math.round(uploadedBytes / 1024 / 1024)}MB / ${Math.round(rawRecordedBlob.size / 1024 / 1024)}MB...`);
-              const chunkRes = await fetch(`/api/upload/chunk/${uploadId}`, {
-                method: "POST",
-                headers: { "Content-Type": "application/octet-stream" },
-                body: chunk
-              });
-              if (!chunkRes.ok) throw new Error("Chunk upload failed");
-              uploadedBytes += chunk.size;
-            }
-
-            setExportStatusText("Converting to MP4 format (this may take a minute)...");
-            const response = await fetch(`/api/upload/finish/${uploadId}`, { method: "POST" });
-
-            if (!response.ok) {
-              const errData = await response.json().catch(() => ({}));
-              throw new Error(errData.error || "Server transcode failed");
-            }
-
-            // Create explicitly typed video/mp4 Blob from response so media players recognize it immediately
-            const mp4Blob = await response.blob();
-            const playableMp4Blob = new Blob([mp4Blob], { type: "video/mp4" });
-            const videoUrl = URL.createObjectURL(playableMp4Blob);
-
-            const dl = document.createElement("a");
-            dl.href = videoUrl;
-            dl.download = `college_memory_slideshow_${Date.now()}.mp4`;
-            document.body.appendChild(dl);
-            dl.click();
-            document.body.removeChild(dl);
-          } catch (err: any) {
-            console.error("Transcode failed, falling back to WebM download:", err);
-            alert("MP4 conversion failed. Downloading high-quality WebM fallback instead. Error: " + err.message);
-            
-            // Fallback download WebM
-            const videoUrl = URL.createObjectURL(rawRecordedBlob);
-            const dl = document.createElement("a");
-            dl.href = videoUrl;
-            dl.download = `college_memory_slideshow_${Date.now()}.webm`;
-            document.body.appendChild(dl);
-            dl.click();
-            document.body.removeChild(dl);
-          }
-        } else {
-          // Standard webm download (or native mp4 download if browser natively recorded to mp4)
-          const fileExtension = recordedIsAlreadyMp4 ? "mp4" : "webm";
-          const finalDownloadBlob = new Blob([rawRecordedBlob], { type: recordedIsAlreadyMp4 ? "video/mp4" : "video/webm" });
-          const videoUrl = URL.createObjectURL(finalDownloadBlob);
-          const dl = document.createElement("a");
-          dl.href = videoUrl;
-          dl.download = `college_memory_slideshow_${Date.now()}.${fileExtension}`;
-          document.body.appendChild(dl);
-          dl.click();
-          document.body.removeChild(dl);
-        }
-
-        setIsExporting(false);
-        setExportStatusText("");
-        setExportProgress(100);
-      };
-
-      // Draw an initial frame to force the compositor to wake up the canvas
-      ctx.fillStyle = "#090504";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      await new Promise((r) => requestAnimationFrame(r));
-      await new Promise((r) => setTimeout(r, 100));
-
-      let currentFrame = 0;
-      let startTime = Date.now();
-      let slideIndex = 0;
-      
-      // Calculate total frames for estimation
-      const totalFramesToRender = slides.reduce((acc, s) => acc + Math.round((s.duration || 3) * 30), 0);
-
-      const compileNextSlide = async () => {
-        if (slideIndex >= slides.length) {
-          recorder.stop();
-          return;
-        }
-
-        const activeSlide = slides[slideIndex];
-        const img = loadedImages[slideIndex];
-
-        if (img instanceof HTMLVideoElement) {
-          img.currentTime = activeSlide.trimStart || 0;
-          img.play().catch(() => {});
-        }
-
-        const totalFrames = Math.round((activeSlide.duration || 3) * 30); // 30 FPS
-
-        for (let f = 0; f < totalFrames; f++) {
-          const ratio = f / totalFrames;
-
-          // Background deep cinematic wash
-          ctx.fillStyle = "#090504";
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-          // Kinetic Ken-Burns & Transition calculations
-          let transitionScale = 1.0;
-          let dx = 0;
-          let dy = 0;
-          let rotation = 0;
-          let alpha = 1.0;
-          let blurAmount = 0;
-
-          // Process advanced custom motion vectors
-          if (activeSlide.motionSpeed && activeSlide.motionSpeed > 0) {
-            const angleRad = ((activeSlide.motionAngle || 0) * Math.PI) / 180;
-            const dist = (activeSlide.motionSpeed || 20) * 1.5;
-            // Interpolate from starting offset to ending offset over timeline
-            dx = Math.cos(angleRad) * (dist / 2) * (1 - ratio * 2);
-            dy = Math.sin(angleRad) * (dist / 2) * (1 - ratio * 2);
-          }
-
-          const t = activeSlide.transition;
-          if (t === "zoom") {
-            transitionScale = 1.0 + ratio * 0.18; // smooth zooming-in
-          } else if (t === "zoomOut") {
-            transitionScale = 1.25 - ratio * 0.25; // smooth zooming-out
-          } else if (t === "panLeft") {
-            if (!activeSlide.motionSpeed) {
-              dx = (0.5 - ratio) * 60;
-            }
-            transitionScale = 1.1;
-          } else if (t === "panRight") {
-            if (!activeSlide.motionSpeed) {
-              dx = (ratio - 0.5) * 60;
-            }
-            transitionScale = 1.1;
-          } else if (t === "tiltUp") {
-            if (!activeSlide.motionSpeed) {
-              dy = (0.5 - ratio) * 60;
-            }
-            transitionScale = 1.1;
-          } else if (t === "tiltDown") {
-            if (!activeSlide.motionSpeed) {
-              dy = (ratio - 0.5) * 60;
-            }
-            transitionScale = 1.1;
-          } else if (t === "slideUp") {
-            if (!activeSlide.motionSpeed) {
-              dy = (1.0 - ratio) * 50;
-            }
-            transitionScale = 1.05;
-          } else if (t === "slideLeft") {
-            if (!activeSlide.motionSpeed) {
-              dx = (1.0 - ratio) * 80;
-            }
-          } else if (t === "slideRight") {
-            if (!activeSlide.motionSpeed) {
-              dx = -(1.0 - ratio) * 80;
-            }
-          } else if (t === "blurFade") {
-            alpha = ratio < 0.25 ? ratio * 4 : ratio > 0.85 ? (1 - ratio) * 6.6 : 1;
-            blurAmount = ratio < 0.2 ? (1 - ratio * 5) * 20 : 0;
-          } else if (t === "retroSpin") {
-            rotation = ratio * 0.05;
-            transitionScale = 1.0 + ratio * 0.1;
-          } else if (t === "vortex") {
-            rotation = (ratio - 1.0) * Math.PI;
-            transitionScale = 0.3 + ratio * 0.7;
-            alpha = ratio;
-          } else if (t === "glitch") {
-            if (ratio < 0.3) {
-              dx = Math.sin(ratio * 50) * 12;
-              rotation = Math.sin(ratio * 100) * 0.03;
-            }
-            transitionScale = 1.0 + Math.sin(ratio * Math.PI) * 0.04;
-          } else if (t === "fadeOnly") {
-            alpha = ratio < 0.2 ? ratio * 5 : 1;
-          }
-
-          // Process Camera 3D Roll/Pitch/Yaw
-          const cRollRad = ((activeSlide.cameraRoll || 0) * Math.PI) / 180;
-          rotation += cRollRad;
-
-          const cPitchShear = ((activeSlide.cameraPitch || 0) * Math.PI) / 180 * 0.2;
-          const cYawShear = ((activeSlide.cameraYaw || 0) * Math.PI) / 180 * 0.2;
-
-          // Process 3D depth parallax separation
-          const parallaxStr = activeSlide.parallaxEnabled ? (activeSlide.parallaxStrength || 30) : 0;
-          const parallaxDriftX = (ratio - 0.5) * parallaxStr * 0.5;
-          const parallaxDriftY = (ratio - 0.5) * parallaxStr * 0.4;
-          
-          dx += parallaxDriftX;
-          dy += parallaxDriftY;
-
-          // Ratio calculation for Cover vs Contain without division-by-zero risk
-          const mediaW = img instanceof HTMLVideoElement ? img.videoWidth : img.width;
-          const mediaH = img instanceof HTMLVideoElement ? img.videoHeight : img.height;
-          const imgRatio = (mediaW && mediaH) ? (mediaW / mediaH) : 1;
-          const canvasRatio = canvas.width / canvas.height;
-          let baseScale = 1.0;
-          const fit = activeSlide.fitMode || "cover";
-
-          if (fit === "cover") {
-            if (imgRatio > canvasRatio) {
-              baseScale = mediaH ? (canvas.height / mediaH) : 1;
-            } else {
-              baseScale = mediaW ? (canvas.width / mediaW) : 1;
-            }
-          } else {
-            if (imgRatio > canvasRatio) {
-              baseScale = mediaW ? (canvas.width / mediaW) : 1;
-            } else {
-              baseScale = mediaH ? (canvas.height / mediaH) : 1;
-            }
-          }
-
-          // Apply custom zoom multiplier
-          baseScale *= (activeSlide.zoomMultiplier || 1.0);
-
-          const finalScale = baseScale * transitionScale;
-          const renderW = mediaW ? (mediaW * finalScale) : canvas.width;
-          const renderH = mediaH ? (mediaH * finalScale) : canvas.height;
-
+        if (img && img.complete && img.naturalWidth > 0) {
           ctx.save();
-          let filterString = "";
-          if (activeSlide.filter && activeSlide.filter !== "none") {
-            filterString += getFilterCss(activeSlide) + " ";
+
+          // Calculate transition progress:
+          // User Request 1: transition state is correctly initialized and applied to the very first slide by properly syncing frame counter and transition duration parameters from frame 0
+          const transitionDuration = Math.min(1.0, currentSlide.duration * 0.3);
+          const transitionProgress = Math.min(1.0, slideLocalSecs / transitionDuration); // 0.0 to 1.0
+
+          // Calculate Scale & Pan
+          const zoom = currentSlide.zoomMultiplier || 1.0;
+          let scaleFactor = zoom;
+          let offsetX = 0;
+          let offsetY = 0;
+          let globalAlpha = 1.0;
+
+          if (currentSlide.transition === "zoom") {
+            scaleFactor = zoom * (1.0 + 0.15 * (slideLocalSecs / currentSlide.duration));
+            globalAlpha = Math.min(1.0, transitionProgress);
+          } else if (currentSlide.transition === "zoomOut") {
+            scaleFactor = zoom * (1.2 - 0.2 * (slideLocalSecs / currentSlide.duration));
+            globalAlpha = Math.min(1.0, transitionProgress);
+          } else if (currentSlide.transition === "panLeft") {
+            offsetX = 40 * (1 - (slideLocalSecs / currentSlide.duration) * 2);
+            globalAlpha = Math.min(1.0, transitionProgress);
+          } else if (currentSlide.transition === "panRight") {
+            offsetX = -40 * (1 - (slideLocalSecs / currentSlide.duration) * 2);
+            globalAlpha = Math.min(1.0, transitionProgress);
+          } else if (currentSlide.transition === "slideUp") {
+            offsetY = (1 - transitionProgress) * height * 0.4;
+            globalAlpha = Math.min(1.0, transitionProgress);
+          } else if (currentSlide.transition === "fadeOnly" || currentSlide.transition === "blurFade") {
+            globalAlpha = Math.min(1.0, transitionProgress);
           }
-          if (blurAmount > 0) {
-            filterString += `blur(${blurAmount}px) `;
-          }
-          if (filterString.trim()) {
-            ctx.filter = filterString.trim();
+
+          ctx.globalAlpha = Math.max(0, Math.min(1, globalAlpha));
+
+          // Draw Image with Fit Mode
+          const imgAspect = img.naturalWidth / img.naturalHeight;
+          const canvasAspect = width / height;
+          let renderW = width;
+          let renderH = height;
+
+          if (currentSlide.fitMode === "contain") {
+            if (imgAspect > canvasAspect) {
+              renderW = width;
+              renderH = width / imgAspect;
+            } else {
+              renderH = height;
+              renderW = height * imgAspect;
+            }
           } else {
-            ctx.filter = "none";
-          }
-          ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-
-          // Draw the photo onto the dynamic canvas, centered with custom transformOrigin (Anchor Pin)
-          const pinPctX = activeSlide.anchorX !== undefined ? activeSlide.anchorX : 50;
-          const pinPctY = activeSlide.anchorY !== undefined ? activeSlide.anchorY : 50;
-
-          // Shift pivot point based on chosen anchor focus pin
-          ctx.translate(canvas.width / 2, canvas.height / 2);
-          
-          // Apply Camera 3D Pitch/Yaw simulated perspective shear
-          if (cPitchShear !== 0 || cYawShear !== 0) {
-            ctx.transform(1, cPitchShear, cYawShear, 1, 0, 0);
-          }
-
-          ctx.rotate(rotation);
-
-          // Apply translation offset to pivot around anchor focus point rather than absolute center
-          const pivotX = (pinPctX / 100 - 0.5) * renderW;
-          const pivotY = (pinPctY / 100 - 0.5) * renderH;
-
-          ctx.translate(-pivotX, -pivotY);
-          
-          if (activeSlide.cropTop || activeSlide.cropBottom || activeSlide.cropLeft || activeSlide.cropRight) {
-            const cropL = (activeSlide.cropLeft || 0) / 100 * renderW;
-            const cropR = (activeSlide.cropRight || 0) / 100 * renderW;
-            const cropT = (activeSlide.cropTop || 0) / 100 * renderH;
-            const cropB = (activeSlide.cropBottom || 0) / 100 * renderH;
-            
-            ctx.beginPath();
-            ctx.rect(
-              -renderW / 2 + dx + pivotX + cropL, 
-              -renderH / 2 + dy + pivotY + cropT, 
-              renderW - cropL - cropR, 
-              renderH - cropT - cropB
-            );
-            ctx.clip();
-          }
-
-          ctx.drawImage(img, -renderW / 2 + dx + pivotX, -renderH / 2 + dy + pivotY, renderW, renderH);
-          ctx.restore();
-
-          // Render Spotlight/Vignette/Split Mask overlay on top of the drawn image
-          if (activeSlide.maskType && activeSlide.maskType !== "none") {
-            ctx.save();
-            ctx.globalCompositeOperation = "source-over";
-            const pinX = (activeSlide.anchorX !== undefined ? activeSlide.anchorX : 50) / 100 * canvas.width;
-            const pinY = (activeSlide.anchorY !== undefined ? activeSlide.anchorY : 50) / 100 * canvas.height;
-            const radius = (activeSlide.maskRadius || 40) / 100 * Math.max(canvas.width, canvas.height);
-            const feather = activeSlide.maskFeather || 50;
-
-            if (activeSlide.maskType === "radial_focus" || activeSlide.maskType === "vignette") {
-              const grad = ctx.createRadialGradient(pinX, pinY, radius * (1 - feather / 100), pinX, pinY, radius);
-              grad.addColorStop(0, "rgba(0,0,0,0)");
-              const maxAlpha = activeSlide.maskType === "vignette" ? 0.92 : 0.72;
-              grad.addColorStop(1, `rgba(9,5,4,${maxAlpha})`);
-              ctx.fillStyle = grad;
-              ctx.fillRect(0, 0, canvas.width, canvas.height);
-            } else if (activeSlide.maskType === "split_mask") {
-              const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
-              grad.addColorStop(0, "rgba(9,5,4,0.75)");
-              grad.addColorStop(0.5, "rgba(0,0,0,0)");
-              grad.addColorStop(1, "rgba(9,5,4,0.75)");
-              ctx.fillStyle = grad;
-              ctx.fillRect(0, 0, canvas.width, canvas.height);
-            }
-            ctx.restore();
-          }
-
-          // Elegant Cinematic Overlay Shading
-          const shade = ctx.createLinearGradient(0, 0, 0, canvas.height);
-          shade.addColorStop(0, "rgba(0,0,0,0.4)");
-          shade.addColorStop(0.7, "rgba(0,0,0,0)");
-          shade.addColorStop(1, "rgba(0,0,0,0.85)");
-          ctx.fillStyle = shade;
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-          // DRAW CINEMATIC SPECIAL EFFECTS (VFX)
-          if (activeSlide.vfxType && activeSlide.vfxType !== "none") {
-            const intensity = activeSlide.vfxIntensity !== undefined ? activeSlide.vfxIntensity : 50;
-
-            if (activeSlide.vfxType === "lens_flare") {
-              ctx.save();
-              ctx.globalCompositeOperation = "screen";
-              const pinX = (activeSlide.anchorX !== undefined ? activeSlide.anchorX : 50) / 100 * canvas.width;
-              const pinY = (activeSlide.anchorY !== undefined ? activeSlide.anchorY : 50) / 100 * canvas.height;
-              
-              // Central flare spark
-              const size = intensity * 4;
-              const flareGrad = ctx.createRadialGradient(pinX, pinY, 0, pinX, pinY, size);
-              flareGrad.addColorStop(0, "rgba(255, 245, 220, 0.95)");
-              flareGrad.addColorStop(0.2, "rgba(245, 158, 11, 0.4)");
-              flareGrad.addColorStop(0.5, "rgba(239, 68, 68, 0.12)");
-              flareGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
-              ctx.fillStyle = flareGrad;
-              ctx.beginPath();
-              ctx.arc(pinX, pinY, size, 0, Math.PI * 2);
-              ctx.fill();
-
-              // Rotated anamorphic light streak
-              ctx.translate(pinX, pinY);
-              ctx.rotate(-12 * Math.PI / 180);
-              const streakGrad = ctx.createLinearGradient(-canvas.width * 1.5, 0, canvas.width * 1.5, 0);
-              streakGrad.addColorStop(0, "rgba(59, 130, 246, 0)");
-              streakGrad.addColorStop(0.2, "rgba(59, 130, 246, 0.35)");
-              streakGrad.addColorStop(0.5, "rgba(255, 255, 255, 0.95)");
-              streakGrad.addColorStop(0.8, "rgba(245, 158, 11, 0.35)");
-              streakGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
-              ctx.fillStyle = streakGrad;
-              ctx.fillRect(-canvas.width * 1.5, -((intensity * 0.12 + 1) / 2), canvas.width * 3, intensity * 0.12 + 1);
-              ctx.restore();
-
-              // Multi-spectral chromatic reflection orbs
-              ctx.save();
-              ctx.globalCompositeOperation = "screen";
-              const orb1X = pinX * 0.7 + canvas.width * 0.15;
-              const orb1Y = pinY * 0.7 + canvas.height * 0.15;
-              const orb1Size = intensity * 0.7 + 15;
-              const orb1Grad = ctx.createRadialGradient(orb1X, orb1Y, 0, orb1X, orb1Y, orb1Size);
-              orb1Grad.addColorStop(0, "rgba(59, 130, 246, 0.18)");
-              orb1Grad.addColorStop(0.6, "rgba(139, 92, 246, 0.06)");
-              orb1Grad.addColorStop(1, "rgba(0, 0, 0, 0)");
-              ctx.fillStyle = orb1Grad;
-              ctx.beginPath();
-              ctx.arc(orb1X, orb1Y, orb1Size, 0, Math.PI * 2);
-              ctx.fill();
-              ctx.strokeStyle = "rgba(59, 130, 246, 0.12)";
-              ctx.lineWidth = 1;
-              ctx.stroke();
-
-              const orb2X = pinX * 0.45 + canvas.width * 0.275;
-              const orb2Y = pinY * 0.45 + canvas.height * 0.275;
-              const orb2Size = intensity * 1.1 + 25;
-              const orb2Grad = ctx.createRadialGradient(orb2X, orb2Y, 0, orb2X, orb2Y, orb2Size);
-              orb2Grad.addColorStop(0, "rgba(239, 68, 68, 0.12)");
-              orb2Grad.addColorStop(0.6, "rgba(245, 158, 11, 0.04)");
-              orb2Grad.addColorStop(1, "rgba(0, 0, 0, 0)");
-              ctx.fillStyle = orb2Grad;
-              ctx.beginPath();
-              ctx.arc(orb2X, orb2Y, orb2Size, 0, Math.PI * 2);
-              ctx.fill();
-              ctx.strokeStyle = "rgba(239, 68, 68, 0.08)";
-              ctx.lineWidth = 1;
-              ctx.stroke();
-              ctx.restore();
-            }
-
-            else if (activeSlide.vfxType === "light_leak") {
-              ctx.save();
-              ctx.globalCompositeOperation = "screen";
-              const alphaVal = (intensity / 100);
-              const angle = ratio * Math.PI * 2;
-              const xOffset = Math.sin(angle) * 40;
-              const yOffset = Math.cos(angle) * 30;
-
-              const leak1Grad = ctx.createRadialGradient(canvas.width * 0.15 + xOffset, canvas.height * 0.15 + yOffset, 0, canvas.width * 0.15 + xOffset, canvas.height * 0.15 + yOffset, canvas.width * 0.5);
-              leak1Grad.addColorStop(0, `rgba(245, 158, 11, ${0.4 * alphaVal})`);
-              leak1Grad.addColorStop(0.4, `rgba(239, 68, 68, ${0.22 * alphaVal})`);
-              leak1Grad.addColorStop(0.7, `rgba(139, 92, 246, ${0.1 * alphaVal})`);
-              leak1Grad.addColorStop(1, "rgba(0,0,0,0)");
-              ctx.fillStyle = leak1Grad;
-              ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-              const leak2Grad = ctx.createRadialGradient(canvas.width * 0.85 - xOffset, canvas.height * 0.85 - yOffset, 0, canvas.width * 0.85 - xOffset, canvas.height * 0.85 - yOffset, canvas.width * 0.45);
-              leak2Grad.addColorStop(0, `rgba(236, 72, 153, ${0.3 * alphaVal})`);
-              leak2Grad.addColorStop(0.4, `rgba(239, 68, 68, ${0.15 * alphaVal})`);
-              leak2Grad.addColorStop(1, "rgba(0,0,0,0)");
-              ctx.fillStyle = leak2Grad;
-              ctx.fillRect(0, 0, canvas.width, canvas.height);
-              ctx.restore();
-            }
-
-            else if (activeSlide.vfxType === "film_grain") {
-              ctx.save();
-              const opacity = (intensity / 100) * 0.25;
-
-              // Draw random micro-grain dots
-              ctx.fillStyle = `rgba(255, 255, 255, ${opacity * 0.65})`;
-              for (let i = 0; i < 400; i++) {
-                const gx = Math.random() * canvas.width;
-                const gy = Math.random() * canvas.height;
-                const gw = Math.random() * 2 + 1;
-                ctx.fillRect(gx, gy, gw, gw);
-              }
-              ctx.fillStyle = `rgba(0, 0, 0, ${opacity * 0.55})`;
-              for (let i = 0; i < 400; i++) {
-                const gx = Math.random() * canvas.width;
-                const gy = Math.random() * canvas.height;
-                const gw = Math.random() * 2 + 1;
-                ctx.fillRect(gx, gy, gw, gw);
-              }
-
-              // Random linear vertical scratches
-              if (Math.random() < 0.35) {
-                ctx.strokeStyle = `rgba(255, 255, 255, ${opacity * 1.6})`;
-                ctx.lineWidth = Math.random() * 1.2 + 0.3;
-                ctx.beginPath();
-                const startX = Math.random() * canvas.width;
-                ctx.moveTo(startX, 0);
-                ctx.lineTo(startX + (Math.random() * 10 - 5), canvas.height);
-                ctx.stroke();
-              }
-              if (Math.random() < 0.25) {
-                ctx.strokeStyle = `rgba(0, 0, 0, ${opacity * 1.4})`;
-                ctx.lineWidth = Math.random() * 1.5 + 0.3;
-                ctx.beginPath();
-                const startX = Math.random() * canvas.width;
-                ctx.moveTo(startX, 0);
-                ctx.lineTo(startX + (Math.random() * 12 - 6), canvas.height);
-                ctx.stroke();
-              }
-
-              // Hair dust
-              if (Math.random() < 0.15) {
-                ctx.strokeStyle = "rgba(0, 0, 0, 0.4)";
-                ctx.lineWidth = 1.5;
-                ctx.beginPath();
-                const hx = Math.random() * canvas.width;
-                const hy = Math.random() * canvas.height;
-                ctx.arc(hx, hy, Math.random() * 15 + 5, Math.random() * Math.PI, Math.random() * Math.PI * 2);
-                ctx.stroke();
-              }
-              ctx.restore();
-            }
-
-            else if (activeSlide.vfxType === "snow") {
-              ctx.save();
-              const opacity = (intensity / 100);
-              const numFlakes = 20;
-              ctx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
-              for (let i = 0; i < numFlakes; i++) {
-                const seedX = (i * 120 + 40) % canvas.width;
-                const size = (i % 3 === 0) ? 9 : (i % 3 === 1) ? 6 : 4;
-                const rate = 1.0 + (i % 4) * 0.4;
-                const driftY = ((ratio * rate + (i * 0.05)) % 1.0) * (canvas.height + 40) - 20;
-                const sway = Math.sin(ratio * Math.PI * 2 * 2 + i) * 15;
-                const driftX = seedX + sway;
-
-                ctx.beginPath();
-                ctx.arc(driftX, driftY, size / 2, 0, Math.PI * 2);
-                ctx.fill();
-              }
-              ctx.restore();
-            }
-
-            else if (activeSlide.vfxType === "rain") {
-              ctx.save();
-              const opacity = (intensity / 100);
-              const numDrops = 30;
-              ctx.strokeStyle = `rgba(220, 230, 255, ${opacity * 0.55})`;
-              ctx.lineWidth = 1.8;
-              for (let i = 0; i < numDrops; i++) {
-                const seedX = (i * 90 + 30) % canvas.width;
-                const rate = 1.8 + (i % 3) * 0.6;
-                const driftY = ((ratio * rate + (i * 0.03)) % 1.0) * (canvas.height + 120) - 60;
-                const driftX = seedX - (driftY * 0.22);
-
-                ctx.beginPath();
-                ctx.moveTo(driftX, driftY);
-                ctx.lineTo(driftX + 12, driftY + 60);
-                ctx.stroke();
-              }
-              ctx.restore();
-            }
-
-            else if (activeSlide.vfxType === "vhs") {
-              ctx.save();
-              const opacity = (intensity / 100);
-
-              // Draw VHS Scanlines
-              ctx.fillStyle = `rgba(0, 0, 0, ${opacity * 0.08})`;
-              for (let y = 0; y < canvas.height; y += 4) {
-                ctx.fillRect(0, y, canvas.width, 2);
-              }
-
-              // Draw VHS Tracking bar
-              const rollY = (ratio * 1.5 % 1.0) * canvas.height;
-              ctx.fillStyle = `rgba(255, 255, 255, ${opacity * 0.12})`;
-              ctx.fillRect(0, rollY, canvas.width, 30);
-              ctx.fillStyle = `rgba(0, 0, 0, ${opacity * 0.15})`;
-              ctx.fillRect(0, rollY + 30, canvas.width, 6);
-
-              // Occasional screen shaking line glitch
-              if (Math.random() < 0.18) {
-                ctx.fillStyle = `rgba(255, 255, 255, ${opacity * 0.25})`;
-                ctx.fillRect(0, Math.random() * canvas.height, canvas.width, Math.random() * 4);
-              }
-
-              // VCR overlay text
-              ctx.fillStyle = "rgba(74, 222, 128, 0.75)";
-              ctx.font = "bold 16px Courier New, monospace";
-              ctx.textAlign = "left";
-              ctx.fillText("PLAY ▷", 30, canvas.height - 30);
-              ctx.textAlign = "right";
-              const padVal = (n: number) => String(n).padStart(2, "0");
-              const secVal = Math.floor(ratio * (activeSlide.duration || 5));
-              ctx.fillText(`00:00:${padVal(secVal)}`, canvas.width - 30, canvas.height - 30);
-              ctx.restore();
-            }
-
-            else if (activeSlide.vfxType === "bokeh") {
-              ctx.save();
-              ctx.globalCompositeOperation = "screen";
-              const opacity = (intensity / 100) * 0.85;
-              const numBubbles = 15;
-
-              for (let i = 0; i < numBubbles; i++) {
-                const seedX = (i * 135 + 65) % canvas.width;
-                const size = (i % 3 === 0) ? 44 : (i % 3 === 1) ? 60 : 28;
-                const rate = 0.5 + (i % 3) * 0.15;
-                const driftY = (1.0 - ((ratio * rate + (i * 0.08)) % 1.0)) * (canvas.height + 80) - 40;
-                const sway = Math.sin(ratio * Math.PI * 2 + i) * 20;
-
-                const grad = ctx.createRadialGradient(seedX + sway, driftY, 0, seedX + sway, driftY, size / 2);
-                grad.addColorStop(0, `rgba(245, 158, 11, ${0.22 * opacity})`);
-                grad.addColorStop(0.6, `rgba(245, 158, 11, ${0.06 * opacity})`);
-                grad.addColorStop(1, "rgba(0, 0, 0, 0)");
-                
-                ctx.fillStyle = grad;
-                ctx.beginPath();
-                ctx.arc(seedX + sway, driftY, size / 2, 0, Math.PI * 2);
-                ctx.fill();
-
-                ctx.strokeStyle = `rgba(245, 158, 11, ${0.08 * opacity})`;
-                ctx.lineWidth = 1;
-                ctx.stroke();
-              }
-              ctx.restore();
+            // Cover
+            if (imgAspect > canvasAspect) {
+              renderH = height;
+              renderW = height * imgAspect;
+            } else {
+              renderW = width;
+              renderH = width / imgAspect;
             }
           }
 
-          // Draw beautiful movie subtitle captions at bottom
-          if (globalShowSubtitles && activeSlide.showSubtitle !== false && activeSlide.caption) {
-            // Options
-            const captionColor = activeSlide.captionColor || "#ffffff";
-            const captionFontFamily = activeSlide.captionFont || "Inter";
-            const captionSizeSetting = activeSlide.captionSize || "medium";
-            
-            let baseFontSize = 26;
-            let panelHeight = 75;
-            let textYOffset = 64;
-            if (captionSizeSetting === "small") { baseFontSize = 18; panelHeight = 55; textYOffset = 70; }
-            if (captionSizeSetting === "large") { baseFontSize = 36; panelHeight = 90; textYOffset = 58; }
-            if (captionSizeSetting === "xlarge") { baseFontSize = 52; panelHeight = 120; textYOffset = 48; }
-            
-            const captionAnim = activeSlide.captionAnimation || "fade";
+          renderW *= scaleFactor;
+          renderH *= scaleFactor;
 
-            // Calculate text animation
-            let textAlpha = 1;
-            let textY = canvas.height - textYOffset;
-            let textScale = 1;
-            
-            if (captionAnim === "fade") {
-              if (ratio < 0.1) textAlpha = ratio / 0.1;
-              else if (ratio > 0.9) textAlpha = (1 - ratio) / 0.1;
-            } else if (captionAnim === "slideUp") {
-              if (ratio < 0.1) {
-                 textAlpha = ratio / 0.1;
-                 textY = canvas.height - textYOffset + (1 - ratio / 0.1) * 30;
-              } else if (ratio > 0.9) {
-                 textAlpha = (1 - ratio) / 0.1;
-                 textY = canvas.height - textYOffset - ((ratio - 0.9) / 0.1) * 30;
-              }
-            } else if (captionAnim === "scale") {
-               if (ratio < 0.1) {
-                 textAlpha = ratio / 0.1;
-                 textScale = 0.5 + (ratio / 0.1) * 0.5;
-               } else if (ratio > 0.9) {
-                 textAlpha = (1 - ratio) / 0.1;
-                 textScale = 1 + ((ratio - 0.9) / 0.1) * 0.5;
-               }
-            } else if (captionAnim === "bounce") {
-               if (ratio < 0.1) {
-                 textAlpha = ratio / 0.1;
-                 const p = ratio / 0.1;
-                 textY = canvas.height - textYOffset - Math.abs(Math.sin(p * Math.PI * 2)) * 15;
-               } else if (ratio > 0.9) {
-                 textAlpha = (1 - ratio) / 0.1;
-               }
-            }
+          const drawX = (width - renderW) / 2 + offsetX;
+          const drawY = (height - renderH) / 2 + offsetY;
 
-            let textToDraw = activeSlide.caption;
-            if (captionAnim === "typewriter") {
-               const charRatio = Math.min(1, ratio / 0.4); // Reveal fully by 40%
-               const charCount = Math.floor(charRatio * activeSlide.caption.length);
-               textToDraw = activeSlide.caption.substring(0, charCount);
-            }
+          ctx.drawImage(img, drawX, drawY, renderW, renderH);
 
-            ctx.save();
-            ctx.globalAlpha = Math.max(0, Math.min(1, textAlpha));
-            
-            // Rounded backing panel
-            ctx.fillStyle = "rgba(9, 5, 4, 0.85)";
-            ctx.beginPath();
-            ctx.roundRect(140, canvas.height - (panelHeight + 35), canvas.width - 280, panelHeight, 16);
-            ctx.fill();
+          // CRT Scanline subtle overlay
+          ctx.fillStyle = "rgba(0, 0, 0, 0.15)";
+          for (let y = 0; y < height; y += 4) {
+            ctx.fillRect(0, y, width, 1.5);
+          }
 
-            // Caption text
-            ctx.fillStyle = captionColor;
-            ctx.font = `bold ${baseFontSize}px '${captionFontFamily}', sans-serif`;
+          // Caption Text Overlay
+          if (currentSlide.caption) {
+            ctx.font = `600 ${Math.round(height * 0.038)}px 'Syne', sans-serif`;
             ctx.textAlign = "center";
-            
-            ctx.translate(canvas.width / 2, textY);
-            ctx.scale(textScale, textScale);
-            ctx.fillText(textToDraw, 0, 0);
-            
-            ctx.restore();
+            ctx.textBaseline = "middle";
+
+            const textY = height * 0.88;
+            const textWidth = ctx.measureText(currentSlide.caption).width;
+
+            // Background glass chip for caption
+            ctx.fillStyle = "rgba(14, 10, 30, 0.85)";
+            ctx.strokeStyle = "rgba(34, 211, 238, 0.5)";
+            ctx.lineWidth = 1.5;
+            const padX = 24;
+            const padY = 12;
+            const bgH = Math.round(height * 0.06);
+
+            ctx.beginPath();
+            ctx.roundRect((width - textWidth) / 2 - padX, textY - bgH / 2, textWidth + padX * 2, bgH, 10);
+            ctx.fill();
+            ctx.stroke();
+
+            // Caption Text
+            ctx.fillStyle = "#ffffff";
+            ctx.fillText(currentSlide.caption, width / 2, textY);
           }
 
-          // Force browser composition of the canvas frame before calculating delay
-          // This prevents skipped/missing transitions where the JS loop runs faster than the compositor
-          await new Promise((r) => requestAnimationFrame(r));
-
-          // Sync the clock to the exact moment the first frame is fully painted.
-          // This ensures transition curves (e.g. ratio = 0.0) don't jump ahead due to initial startup lag.
-          if (slideIndex === 0 && f === 0) {
-            // Restart audio to perfectly sync with the first recorded frame
-            if (activeSoundtrackType === "custom" && activeAudioElement) {
-              activeAudioElement.currentTime = 0;
-            } else if (activeSoundtrackType === "synth") {
-              synthesizer.stop();
-              if (audioCtx && exportDestNode) {
-                synthesizer.start(exportDestNode, audioCtx);
-              }
-            }
-            
-            recorder.start();
-            startTime = Date.now();
-          }
-
-          // Self-correcting timer delay calculation to prevent setTimeout drifts
-          const nextTargetTimeMs = ((currentFrame + 1) / 30) * 1000;
-          const currentElapsed = Date.now() - startTime;
-          const targetDelay = nextTargetTimeMs - currentElapsed;
-          if (targetDelay > 0) {
-            await new Promise((r) => setTimeout(r, targetDelay));
-          }
-
-          // Increment frame counter
-          currentFrame++;
-
-          const elapsedMs = Date.now() - startTime;
-          const overallProgress = Math.min(97, Math.round((currentFrame / totalFramesToRender) * 100));
-          setExportProgress(overallProgress);
-
-          // Dynamically compute the estimated remaining seconds
-          const measuredMsPerFrame = currentFrame > 5 ? (elapsedMs / currentFrame) : estimatedMsPerFrame;
-          const averageMsPerFrame = currentFrame > 15 ? (measuredMsPerFrame * 0.8 + estimatedMsPerFrame * 0.2) : measuredMsPerFrame;
-          const remainingFrames = totalFramesToRender - currentFrame;
-          let remainingSeconds = Math.ceil((remainingFrames * averageMsPerFrame) / 1000);
-
-          if (exportFormat === "mp4") {
-            const overallRatio = currentFrame / totalFramesToRender;
-            const remainingTranscodeOverhead = Math.ceil(transcodeOverheadSeconds * (1 - overallRatio * 0.5));
-            remainingSeconds += Math.max(2, remainingTranscodeOverhead);
-          }
-          setExportTimeRemaining(Math.max(0, remainingSeconds));
+          ctx.restore();
         }
-
-        if (img instanceof HTMLVideoElement) {
-          img.pause();
-        }
-        slideIndex++;
-        compileNextSlide();
       };
 
-      compileNextSlide();
-    } catch (e: any) {
-      if (activeAudioElement) {
-        try {
-          activeAudioElement.pause();
-        } catch (err) {}
-      }
-      synthesizer.stop();
-      if (audioCtx) {
-        try {
-          audioCtx.close();
-        } catch (err) {}
+      // Frame generation loop
+      for (let f = 0; f < totalFrames; f++) {
+        compileNextSlide(f);
+        currentFrame = f;
+        setExportProgress(Math.round((f / totalFrames) * 90));
+        setExportStatusText(`Rendering frame ${f + 1} / ${totalFrames} (${Math.round((f / totalFrames) * 100)}%)...`);
+
+        // Yield to browser UI
+        if (f % 5 === 0) {
+          await new Promise(r => setTimeout(r, 8));
+        }
       }
 
-      // Clean up the canvas from the DOM in case of compilation failure
-      const el = document.getElementById("cinematic-export-canvas");
-      if (el && el.parentNode) {
-        el.parentNode.removeChild(el);
+      mediaRecorder.stop();
+      setExportStatusText("Finalizing video stream encoding...");
+      const rawRecordedBlob = await recordFinishedPromise;
+
+      audioCtx.close();
+
+      setExportProgress(92);
+      setExportStatusText("Converting to MP4 format...");
+
+      let finalBlob = rawRecordedBlob;
+      let filename = `${projectName.toLowerCase().replace(/\s+/g, "_")}_${Date.now()}.mp4`;
+
+      if (exportFormat === "mp4") {
+        try {
+          setExportStatusText("Converting to MP4 in-browser with FFmpeg...");
+          finalBlob = await transcodeWebmToMp4InBrowser(rawRecordedBlob, setExportStatusText);
+        } catch (wasmErr) {
+          console.warn("WASM transcode error, attempting server fallback:", wasmErr);
+          try {
+            setExportStatusText("Transcoding via server FFmpeg backend...");
+            const sRes = await fetch("/api/convert-to-mp4", {
+              method: "POST",
+              headers: { "Content-Type": "video/webm" },
+              body: rawRecordedBlob
+            });
+            if (sRes.ok) {
+              finalBlob = await sRes.blob();
+            }
+          } catch (serverErr) {
+            console.warn("Server transcode also failed, downloading high quality WebM fallback", serverErr);
+            filename = `${projectName.toLowerCase().replace(/\s+/g, "_")}_${Date.now()}.webm`;
+          }
+        }
+      } else {
+        filename = `${projectName.toLowerCase().replace(/\s+/g, "_")}_${Date.now()}.webm`;
       }
-      alert("Failed compiling slides: " + e.message);
+
+      setExportProgress(100);
+      setExportStatusText("Export complete! Downloading your video...");
+
+      const url = URL.createObjectURL(finalBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      setTimeout(() => {
+        setIsExporting(false);
+        setShowExportModal(false);
+      }, 1500);
+    } catch (err: any) {
+      showToast("Export error: " + (err.message || err), "warn");
       setIsExporting(false);
     }
   };
 
-  // Pick transition parameters for CSS motion components with zoomMultiplier support
-  const getMotionAnimation = (slide: VideoSlide, sec: number) => {
-    const style = slide.transition;
-    const userScale = slide.zoomMultiplier || 1.0;
+  // Upload Local File as Slide or Asset
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-    // Advanced features
-    const cRoll = slide.cameraRoll || 0;
-    const cPitch = slide.cameraPitch || 0;
-    const cYaw = slide.cameraYaw || 0;
+    const reader = new FileReader();
+    reader.onload = evt => {
+      const result = evt.target?.result as string;
+      if (!result) return;
 
-    let customXInit = 0;
-    let customXAnim = 0;
-    let customYInit = 0;
-    let customYAnim = 0;
+      const newSlide: VideoSlide = {
+        id: `slide_user_${Date.now()}`,
+        url: result,
+        caption: file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " "),
+        duration: 3.5,
+        transition: "zoom",
+        filter: "none",
+        fitMode: "cover",
+        zoomMultiplier: 1.0,
+        volume: 100,
+        description: file.name
+      };
 
-    if (slide.motionSpeed && slide.motionSpeed > 0) {
-      const angleRad = ((slide.motionAngle || 0) * Math.PI) / 180;
-      const dist = (slide.motionSpeed || 20) * 1.5; // Up to 150px
-      customXInit = Math.cos(angleRad) * (dist / 2);
-      customYInit = Math.sin(angleRad) * (dist / 2);
-      customXAnim = -Math.cos(angleRad) * (dist / 2);
-      customYAnim = -Math.sin(angleRad) * (dist / 2);
-    }
-
-    const parallaxStr = slide.parallaxEnabled ? (slide.parallaxStrength || 30) : 0;
-    const prxX = parallaxStr * 0.4; // Horizontal swing
-    const prxY = parallaxStr * 0.3; // Vertical swing
-
-    // Base animation states that incorporate camera controls and parallax
-    const initial: any = {
-      scale: userScale,
-      rotate: cRoll,
-      rotateX: cPitch - prxY,
-      rotateY: cYaw - prxX,
-      x: customXInit,
-      y: customYInit,
+      setSlides(prev => {
+        const next = [...prev, newSlide];
+        setCurrentIndex(next.length - 1);
+        return next;
+      });
+      setGalleryAssets(prev => [result, ...prev]);
+      showToast(`Added frame: ${newSlide.caption}`, "success");
     };
-
-    const animate: any = {
-      scale: userScale,
-      rotate: cRoll,
-      rotateX: cPitch + prxY,
-      rotateY: cYaw + prxX,
-      x: customXAnim,
-      y: customYAnim,
-    };
-
-    const transition: any = { duration: sec, ease: "linear" };
-
-    switch (style) {
-      case "zoom":
-        initial.scale = userScale;
-        animate.scale = userScale * 1.18;
-        transition.ease = "easeOut";
-        break;
-      case "zoomOut":
-        initial.scale = userScale * 1.25;
-        animate.scale = userScale * 1.0;
-        transition.ease = "easeOut";
-        break;
-      case "panLeft":
-        if (!slide.motionSpeed) {
-          initial.x = 30;
-          animate.x = -30;
-        }
-        initial.scale = userScale * 1.1;
-        animate.scale = userScale * 1.1;
-        break;
-      case "panRight":
-        if (!slide.motionSpeed) {
-          initial.x = -30;
-          animate.x = 30;
-        }
-        initial.scale = userScale * 1.1;
-        animate.scale = userScale * 1.1;
-        break;
-      case "tiltUp":
-        if (!slide.motionSpeed) {
-          initial.y = -30;
-          animate.y = 30;
-        }
-        initial.scale = userScale * 1.1;
-        animate.scale = userScale * 1.1;
-        break;
-      case "tiltDown":
-        if (!slide.motionSpeed) {
-          initial.y = 30;
-          animate.y = -30;
-        }
-        initial.scale = userScale * 1.1;
-        animate.scale = userScale * 1.1;
-        break;
-      case "slideUp":
-        if (!slide.motionSpeed) {
-          initial.y = 40;
-          animate.y = -10;
-        }
-        initial.scale = userScale * 1.05;
-        animate.scale = userScale * 1.05;
-        transition.ease = "easeOut";
-        break;
-      case "slideLeft":
-        if (!slide.motionSpeed) {
-          initial.x = 80;
-          animate.x = 0;
-        }
-        transition.ease = "easeOut";
-        break;
-      case "slideRight":
-        if (!slide.motionSpeed) {
-          initial.x = -80;
-          animate.x = 0;
-        }
-        transition.ease = "easeOut";
-        break;
-      case "blurFade":
-        initial.filter = "blur(15px)";
-        animate.filter = "blur(0px)";
-        initial.opacity = 0;
-        animate.opacity = 1;
-        transition.duration = Math.min(0.8, sec);
-        transition.ease = "easeOut";
-        break;
-      case "retroSpin":
-        initial.rotate = cRoll - 3;
-        animate.rotate = cRoll + 3;
-        initial.scale = userScale * 1.1;
-        animate.scale = userScale * 1.15;
-        transition.ease = "easeOut";
-        break;
-      case "vortex":
-        initial.rotate = cRoll - 180;
-        animate.rotate = cRoll;
-        initial.scale = 0.3;
-        animate.scale = userScale;
-        initial.opacity = 0;
-        animate.opacity = 1;
-        transition.ease = "easeOut";
-        break;
-      case "glitch":
-        initial.skewX = -10;
-        initial.scale = userScale * 1.05;
-        animate.skewX = [10, -10, 5, -5, 0];
-        animate.scale = userScale;
-        transition.duration = Math.min(1.2, sec);
-        transition.ease = "easeInOut";
-        break;
-      case "fadeOnly":
-        initial.opacity = 0;
-        animate.opacity = 1;
-        transition.duration = Math.min(1.0, sec);
-        transition.ease = "easeIn";
-        break;
-      default:
-        initial.opacity = 0;
-        animate.opacity = 1;
-        transition.duration = 0.5;
-        break;
-    }
-
-    if (slide.bezierCurve && slide.bezierCurve.length === 4) {
-      transition.ease = slide.bezierCurve;
-    }
-
-    return { initial, animate, transition };
+    reader.readAsDataURL(file);
+    e.target.value = "";
   };
 
-  const renderInspectorPreview = () => (
-    <div className="relative aspect-video bg-stone-950 rounded-xl overflow-hidden border border-stone-800 flex items-center justify-center group mb-4">
-      <AnimatePresence mode="wait">
-        {slides[currentIndex].mediaType === "video" ? (
-          <motion.video
-            key={`${currentIndex}_${slides[currentIndex].transition}_${previewToggle}_video`}
-            src={`${slides[currentIndex].url}#t=${slides[currentIndex].trimStart || 0},${slides[currentIndex].trimEnd || slides[currentIndex].duration}`}
-            className={`w-full h-full ${
-              slides[currentIndex].fitMode === "contain" ? "object-contain" : "object-cover"
-            }`}
-            autoPlay
-            loop
-            muted
-            playsInline
-            style={{ filter: getFilterCss(slides[currentIndex]) }}
-            {...getMotionAnimation(slides[currentIndex], 1.2)}
-          />
-        ) : (
-          <motion.img
-            key={`${currentIndex}_${slides[currentIndex].transition}_${previewToggle}`}
-            src={slides[currentIndex].url}
-            alt="Inspector Thumbnail"
-            className={`w-full h-full ${
-              slides[currentIndex].fitMode === "contain" ? "object-contain" : "object-cover"
-            }`}
-            style={{ filter: getFilterCss(slides[currentIndex]) }}
-            referrerPolicy="no-referrer"
-            {...getMotionAnimation(slides[currentIndex], 1.2)}
-          />
-        )}
-      </AnimatePresence>
-        
-      <span className="absolute bottom-2 left-2 text-[8px] font-mono bg-stone-900/95 text-stone-400 px-1.5 py-0.5 rounded border border-stone-800 uppercase pointer-events-none z-10">
-        {slides[currentIndex].fitMode === "contain" ? "Contain" : "Cover"}
-      </span>
-
-      <span className="absolute top-2 left-2 text-[8px] font-mono bg-amber-500/90 text-stone-950 px-2 py-0.5 rounded-full font-bold uppercase shadow-sm z-10 pointer-events-none">
-        Effect: {slides[currentIndex].transition || "zoom"}
-      </span>
-
-      <button
-        onClick={() => setPreviewToggle(prev => prev + 1)}
-        className="absolute inset-0 bg-black/55 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-1.5 text-white text-[10px] font-bold font-mono transition-all duration-200 cursor-pointer z-20"
-        title="Replay Transition Animation Preview"
-      >
-        <span className="p-2 bg-amber-500 hover:scale-110 active:scale-95 text-stone-950 rounded-full shadow-lg transition-transform">
-          <Play className="w-3.5 h-3.5 fill-stone-950" />
-        </span>
-        <span className="bg-stone-950/90 px-2 py-0.5 rounded-lg border border-stone-800 tracking-wider">REPLAY PREVIEW</span>
-      </button>
-    </div>
-  );
+  const currentSlide = slides[currentIndex] || null;
 
   return (
-    <div className="min-h-screen bg-stone-950 text-stone-100 font-sans selection:bg-amber-500 selection:text-black relative overflow-x-hidden">
-      {/* Background ambient texture glow */}
-      {currentView === "home" ? (
-         <Home3DBackground />
-      ) : (
-         <>
-            <div className="absolute top-0 left-1/4 w-96 h-96 bg-amber-500/5 rounded-full blur-[120px] pointer-events-none" />
-            <div className="absolute bottom-10 right-1/4 w-96 h-96 bg-amber-600/5 rounded-full blur-[120px] pointer-events-none" />
-         </>
-      )}
+    <div className="relative min-h-screen bg-[#07050f] text-white flex flex-col font-syne select-none">
+      {/* Background StarField & Corner Radial Glows */}
+      <StarField />
 
-      <div className="relative z-10 max-w-7xl mx-auto px-4 py-8 flex flex-col min-h-screen">
-        {currentView === "home" ? (
-          <div className="flex flex-col items-center justify-center flex-1 space-y-10 py-12 relative z-10">
-            <div className="text-center space-y-4">
-              <div className="mx-auto w-20 h-20 bg-gradient-to-tr from-amber-500 to-amber-600 rounded-2xl flex items-center justify-center text-stone-950 shadow-lg shadow-amber-500/20 mb-8">
-                <Video className="w-10 h-10" />
-              </div>
-              <h1 className="text-5xl font-extrabold text-stone-100 font-sans tracking-tight">Cinematic Studio</h1>
-              <p className="text-stone-400 font-mono text-sm max-w-md mx-auto">Create beautiful HTML5 canvas video slideshows with Web Audio integration.</p>
-            </div>
+      {/* Radial Corner Glows */}
+      <div className="fixed top-0 left-0 w-96 h-96 bg-[#8b5cf6]/15 rounded-full blur-3xl pointer-events-none -translate-x-1/2 -translate-y-1/2" />
+      <div className="fixed bottom-0 right-0 w-96 h-96 bg-[#ff3d9a]/15 rounded-full blur-3xl pointer-events-none translate-x-1/2 translate-y-1/2" />
+      <div className="fixed top-1/2 left-1/2 w-[32rem] h-[32rem] bg-[#22d3ee]/8 rounded-full blur-3xl pointer-events-none -translate-x-1/2 -translate-y-1/2" />
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-3xl mt-12">
-              <button
-                onClick={() => {
-                  setSlides([]);
-                  setProjectName("New Project");
-                  setCurrentIndex(0);
-                  setVideoAspectRatio("16:9");
-                  setExportResolution("1080p");
-                  setCurrentView("editor");
-                }}
-                className="flex flex-col items-center justify-center gap-4 p-10 rounded-3xl border-2 border-dashed border-stone-800 bg-stone-900/40 hover:bg-stone-900 hover:border-amber-500/50 transition-all cursor-pointer group"
-              >
-                <div className="p-4 bg-stone-950 rounded-2xl group-hover:scale-110 transition-transform shadow-xl">
-                  <Plus className="w-8 h-8 text-amber-500" />
-                </div>
-                <div className="text-center">
-                  <h3 className="font-bold text-lg text-stone-200">Start New Project</h3>
-                  <p className="text-xs text-stone-500 mt-2 font-mono">Blank canvas timeline</p>
-                </div>
-              </button>
-
-              <div className="flex flex-col gap-4 bg-stone-900/40 p-6 rounded-3xl border border-stone-800 h-[280px]">
-                <div className="flex items-center justify-between mb-1 pl-2 shrink-0">
-                  <div className="flex items-center gap-2">
-                    <Library className="w-4 h-4 text-stone-500" />
-                    <h3 className="font-mono text-xs uppercase tracking-widest text-stone-500">Recent Projects</h3>
-                  </div>
-                  {availableProjects.length > 0 && (
-                    <button 
-                      onClick={deleteAllProjects}
-                      className="text-[10px] uppercase font-bold text-rose-500 hover:text-rose-400 font-mono flex items-center gap-1 transition-colors cursor-pointer bg-transparent border-none"
-                      title="Delete all projects"
-                    >
-                      <Trash2 className="w-3 h-3" /> Delete All
-                    </button>
-                  )}
-                </div>
-                {availableProjects.length === 0 ? (
-                  <div className="flex-1 flex flex-col items-center justify-center p-6 text-center border border-stone-800/50 rounded-2xl bg-stone-900/30 text-stone-500 text-sm italic">
-                    <Film className="w-8 h-8 opacity-20 mb-3" />
-                    No recent projects found
-                  </div>
-                ) : (
-                  <div className="flex-1 space-y-2 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-stone-800">
-                    {availableProjects.map(proj => (
-                      <div key={proj} className="flex w-full items-center gap-2">
-                        <button
-                          onClick={() => {
-                            loadProject(proj);
-                            setCurrentView("editor");
-                          }}
-                          className="flex-1 flex items-center justify-between p-4 rounded-2xl border border-stone-800 bg-stone-950 hover:border-amber-500/30 transition-all cursor-pointer text-left group shrink-0"
-                        >
-                          <div className="flex items-center gap-3">
-                            <Film className="w-5 h-5 text-stone-500 group-hover:text-amber-500 transition-colors" />
-                            <span className="font-bold text-stone-300 group-hover:text-stone-100 truncate max-w-[130px]">{proj}</span>
-                          </div>
-                          <ArrowRight className="w-4 h-4 text-stone-600 group-hover:text-amber-500 transition-colors" />
-                        </button>
-                        <button 
-                          onClick={(e) => deleteProject(proj, e)}
-                          className="p-4 flex-shrink-0 rounded-2xl border border-stone-800 bg-stone-950 hover:bg-rose-500/10 hover:border-rose-500/30 transition-all cursor-pointer group"
-                          title="Delete Project"
-                        >
-                          <Trash2 className="w-5 h-5 text-stone-500 group-hover:text-rose-500 transition-colors" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <>
-        {/* Cinematic Header Block */}
-        <header className="flex flex-col lg:flex-row items-center justify-between border-b border-stone-800 pb-6 mb-8 gap-6">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-gradient-to-tr from-amber-500 to-amber-600 rounded-2xl text-stone-950 shadow-lg shadow-amber-500/10">
-              <Video className="w-8 h-8" />
+      {/* TOP HEADER */}
+      <header className="relative z-20 border-b border-[#8b5cf6]/25 bg-[#0e0a1e]/80 backdrop-blur-md px-4 sm:px-6 py-3">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+          {/* Left: App Brand & Editable Project Name */}
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#ff3d9a] via-[#8b5cf6] to-[#22d3ee] flex items-center justify-center shadow-[0_0_16px_rgba(255,61,154,0.4)]">
+              <Film className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-stone-100 via-amber-200 to-amber-400 bg-clip-text text-transparent">
-                Animated Transition Video Maker
-              </h1>
-              <p className="text-xs text-stone-400 mt-1 flex items-center gap-1.5">
-                <Sparkle className="w-3.5 h-3.5 text-amber-500 animate-spin" />
-                Build cinematic slide shows with custom durations, beautiful text overlays, & custom soundtracks
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => {
-                saveProject();
-                setCurrentView("home");
-              }}
-              className="flex items-center gap-1 bg-stone-900 border border-stone-850 p-2 rounded-xl mr-2 text-stone-400 hover:text-amber-500 hover:border-amber-500/50 transition-all cursor-pointer h-[52px]"
-              title="Return to Home"
-            >
-              <Home className="w-5 h-5" />
-              <span className="text-[10px] font-mono hidden sm:inline-block px-1">HOME</span>
-            </button>
-
-            {/* Project Management */}
-            <div className="flex flex-col gap-1.5 bg-stone-900 border border-stone-850 p-2 rounded-xl mr-2">
               <div className="flex items-center gap-2">
                 <input
                   type="text"
                   value={projectName}
-                  onChange={(e) => setProjectName(e.target.value)}
-                  className="bg-stone-950 border border-stone-800 rounded-lg px-2 py-1 text-xs text-stone-200 focus:border-amber-500/50 focus:outline-none w-32"
-                  placeholder="Project Name"
+                  onChange={e => setProjectName(e.target.value)}
+                  className="bg-transparent font-extrabold text-sm sm:text-base tracking-wide text-white hover:border-b border-[#22d3ee]/50 focus:border-b focus:border-[#22d3ee] focus:outline-none transition-all px-1 py-0.5"
+                  title="Click to rename project"
                 />
-                <button
-                  onClick={saveProject}
-                  className="p-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer bg-stone-800 hover:bg-amber-500 hover:text-stone-950 text-stone-300"
-                  title="Save Project"
-                >
-                  <Save className="w-3.5 h-3.5" />
-                </button>
+                <span className="font-mono-hud text-[#22d3ee] px-2 py-0.5 rounded border border-[#22d3ee]/40 bg-[#22d3ee]/10 text-[9px]">
+                  4K · 30FPS
+                </span>
               </div>
-              {availableProjects.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <select
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        loadProject(e.target.value);
-                        e.target.value = "";
-                      }
-                    }}
-                    className="bg-stone-950 border border-stone-800 rounded-lg px-2 py-1 text-[10px] text-stone-400 focus:border-amber-500/50 focus:outline-none w-full cursor-pointer"
-                  >
-                    <option value="">Load Project...</option>
-                    {availableProjects.map(proj => (
-                      <option key={proj} value={proj}>{proj}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              <div className="flex items-center gap-2 font-mono-hud text-white/50 text-[9px] mt-0.5">
+                <span className="inline-block w-2 h-2 rounded-full bg-[#ff3d9a] animate-live-dot" />
+                <span>FILM TC {formatTimecode(totalElapsedTime)} / {formatTimecode(totalDuration)}</span>
+              </div>
             </div>
+          </div>
 
-            {/* Undo / Redo controls */}
-            <div className="flex items-center gap-1 bg-stone-900 border border-stone-850 p-1.5 rounded-xl mr-1">
+          {/* Center: Aspect Ratio Toggles */}
+          <div className="flex items-center gap-1 bg-[#120c26]/90 p-1 rounded-xl border border-[#8b5cf6]/30">
+            {(["16:9", "9:16", "1:1", "4:5"] as const).map(ratio => (
               <button
-                onClick={handleUndo}
-                disabled={past.length === 0}
-                className={`p-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                  past.length > 0
-                    ? "text-stone-200 hover:text-amber-400 hover:bg-stone-800"
-                    : "text-stone-600 cursor-not-allowed opacity-30"
+                key={ratio}
+                onClick={() => setVideoAspectRatio(ratio)}
+                className={`hud-tab px-2.5 py-1 text-[9px] ${
+                  videoAspectRatio === ratio ? "hud-tab-active" : ""
                 }`}
-                title="Undo (Ctrl+Z)"
               >
-                <Undo className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline text-[10px] font-mono">Undo ({past.length})</span>
+                {ratio}
               </button>
-              
-              <div className="w-[1px] h-3.5 bg-stone-800/80 mx-1" />
-              
-              <button
-                onClick={handleRedo}
-                disabled={future.length === 0}
-                className={`p-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                  future.length > 0
-                    ? "text-stone-200 hover:text-amber-400 hover:bg-stone-800"
-                    : "text-stone-600 cursor-not-allowed opacity-30"
-                }`}
-                title="Redo (Ctrl+Y)"
-              >
-                <Redo className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline text-[10px] font-mono">Redo ({future.length})</span>
-              </button>
-            </div>
+            ))}
+          </div>
 
+          {/* Right: Action Buttons (AI Video Generator, Projects, New, Export) */}
+          <div className="flex items-center gap-2">
+            {/* AI Collage Generator Modal Button */}
             <button
-              onClick={() => setIsAssetGalleryOpen(!isAssetGalleryOpen)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow ${
-                isAssetGalleryOpen
-                  ? "bg-amber-500/15 border border-amber-500 text-amber-400"
-                  : "bg-stone-900 border border-stone-800 hover:border-amber-500/30 text-stone-200"
+              onClick={() => setShowAiModal(true)}
+              className="hud-btn hud-btn-cyan flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold"
+              title="Auto-generate video from collage with Gemini AI"
+            >
+              <Wand2 className="w-3.5 h-3.5 text-[#22d3ee]" />
+              <span className="hidden sm:inline">AI COLLAGE</span>
+            </button>
+
+            {/* Asset Gallery Button */}
+            <button
+              onClick={() => setShowGalleryModal(true)}
+              className="hud-btn flex items-center gap-1.5 px-3 py-1.5 text-xs"
+              title="Media and Asset Library"
+            >
+              <ImageIcon className="w-3.5 h-3.5 text-[#8b5cf6]" />
+              <span className="hidden sm:inline">MEDIA</span>
+            </button>
+
+            {/* Saved Projects Modal Button */}
+            <button
+              onClick={() => {
+                refreshSavedProjects();
+                setShowProjectsModal(true);
+              }}
+              className="hud-btn flex items-center gap-1.5 px-2.5 py-1.5 text-xs"
+              title="Saved Projects"
+            >
+              <FolderOpen className="w-3.5 h-3.5 text-white/70" />
+            </button>
+
+            {/* Save Current Project */}
+            <button
+              onClick={saveCurrentProject}
+              className="hud-btn flex items-center gap-1.5 px-2.5 py-1.5 text-xs"
+              title="Save Project to LocalStorage"
+            >
+              <Save className="w-3.5 h-3.5 text-white/70" />
+            </button>
+
+            {/* Start New Project (clean slate reset) */}
+            <button
+              onClick={startNewProject}
+              className="hud-btn flex items-center gap-1.5 px-2.5 py-1.5 text-xs hover:border-[#ff3d9a]"
+              title="Start New Blank Project"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-white/70" />
+              <span className="hidden md:inline">NEW</span>
+            </button>
+
+            {/* Export Video Button */}
+            <button
+              onClick={() => setShowExportModal(true)}
+              className="hud-btn hud-btn-primary flex items-center gap-1.5 px-4 py-1.5 text-xs font-extrabold"
+              title="Export Full High-Def Video"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>EXPORT</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* MAIN WORKSPACE: 2-COLUMN LAYOUT (EDITOR PREVIEW + INSPECTOR) */}
+      <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-5 grid grid-cols-1 lg:grid-cols-12 gap-4 relative z-10">
+        {/* LEFT / CENTER: VIDEO CANVAS PREVIEW & PLAYBACK BAR (lg:col-span-8) */}
+        <div className="lg:col-span-8 flex flex-col gap-3">
+          {/* Main Preview Card */}
+          <div className="hud-glass-card p-3 sm:p-4 flex flex-col items-center justify-center">
+            {/* Corner HUD Brackets */}
+            <div className="hud-bracket hud-bracket-tl" />
+            <div className="hud-bracket hud-bracket-tr" />
+            <div className="hud-bracket hud-bracket-bl" />
+            <div className="hud-bracket hud-bracket-br" />
+
+            {/* Top HUD Status Row */}
+            <div className="w-full flex items-center justify-between pb-2 mb-2 border-b border-[#8b5cf6]/20 font-mono-hud text-[9px] text-white/60">
+              <span className="text-[#22d3ee]">
+                FINAL CUT · {videoAspectRatio} · {exportResolution.toUpperCase()}
+              </span>
+              <span>
+                {slides.length > 0
+                  ? `SLIDE ${(currentIndex + 1).toString().padStart(2, "0")} / ${slides.length.toString().padStart(2, "0")}`
+                  : "NO SLIDES"}
+              </span>
+            </div>
+
+            {/* The Video / Canvas Viewport */}
+            <div
+              className={`relative w-full bg-[#07050f] rounded-xl overflow-hidden border border-[#8b5cf6]/40 shadow-[0_0_30px_rgba(0,0,0,0.8)] flex items-center justify-center transition-all ${
+                videoAspectRatio === "16:9"
+                  ? "aspect-video"
+                  : videoAspectRatio === "9:16"
+                  ? "aspect-[9/16] max-h-[580px]"
+                  : videoAspectRatio === "1:1"
+                  ? "aspect-square max-h-[520px]"
+                  : "aspect-[4/5] max-h-[540px]"
               }`}
             >
-              <Library className="w-4 h-4 text-amber-500" />
-              <span>Asset Gallery ({galleryAssets.length})</span>
-            </button>
+              {/* Scanline CRT overlay */}
+              <div className="absolute inset-0 crt-overlay z-10 pointer-events-none" />
 
-            <button
-              onClick={loadDemoProject}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-stone-900 border border-stone-800 hover:border-amber-500/30 text-stone-200 transition-all cursor-pointer shadow"
-            >
-              <FolderOpen className="w-4 h-4 text-amber-500" />
-              Load 20+ Demo Images
-            </button>
+              {/* Sweeping cyan scan line animation */}
+              <div className="absolute inset-y-0 w-24 bg-gradient-to-r from-transparent via-[#22d3ee]/20 to-transparent animate-scan-sweep z-10 pointer-events-none" />
 
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-stone-950 transition-all cursor-pointer shadow-lg shadow-amber-500/15"
-            >
-              <Upload className="w-4 h-4" />
-              Upload Batch Photos
-            </button>
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleImageFileChange}
-              accept="image/*,video/*"
-              multiple
-              className="hidden"
-            />
-          </div>
-        </header>
-
-        {/* Dynamic Drag-and-Drop Area if no slides are present */}
-        {slides.length === 0 ? (
-          <div
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            className={`flex-1 min-h-[450px] border-2 border-dashed rounded-3xl flex flex-col items-center justify-center p-8 text-center transition-all ${
-              isDraggingOver
-                ? "border-amber-500 bg-amber-500/5 scale-[0.99]"
-                : "border-stone-800 bg-stone-900/20 hover:border-stone-700"
-            }`}
-          >
-            <div className="w-20 h-20 rounded-full bg-stone-900 border border-stone-800 flex items-center justify-center mb-6">
-              <Upload className="w-10 h-10 text-stone-500 animate-pulse" />
-            </div>
-            <h2 className="text-xl font-bold text-stone-200">Start Crafting Your Cinematic Video</h2>
-            <p className="text-xs text-stone-400 max-w-md mt-2 leading-relaxed">
-              Drag & drop over 20+ images from your college memories, or upload them at once. Add background audio, set custom transition animation effects, and export the video easily!
-            </p>
-
-            <div className="flex gap-4 mt-8">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="px-6 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs transition-all shadow-lg shadow-amber-500/10 cursor-pointer"
-              >
-                Upload Images
-              </button>
-              <button
-                onClick={loadDemoProject}
-                className="px-6 py-3 rounded-xl bg-stone-900 border border-stone-800 hover:border-stone-700 text-stone-300 font-bold text-xs transition-all cursor-pointer"
-              >
-                Use 20+ Demo Snapshots
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start flex-1">
-            {/* ASSET GALLERY SIDEBAR */}
-            <AnimatePresence mode="popLayout">
-              {isAssetGalleryOpen && (
-                <motion.aside
-                  id="asset-gallery-sidebar"
-                  initial={{ opacity: 0, x: -30, width: 0 }}
-                  animate={{ opacity: 1, x: 0, width: "auto" }}
-                  exit={{ opacity: 0, x: -30, width: 0 }}
-                  transition={{ duration: 0.35, ease: "easeInOut" }}
-                  className="lg:col-span-3 bg-stone-900 border border-stone-800 rounded-3xl p-5 shadow-2xl h-[400px] lg:h-[820px] flex flex-col overflow-hidden relative lg:sticky lg:top-4"
-                >
-                  {/* Sidebar Header */}
-                  <div className="flex items-center justify-between border-b border-stone-800 pb-3 mb-3">
-                    <div className="flex items-center gap-2">
-                      <div className="p-2 bg-amber-500/10 text-amber-400 rounded-xl">
-                        <Images className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-stone-200 font-mono">
-                          Asset Gallery
-                        </h3>
-                        <p className="text-[10px] text-stone-400 font-mono">
-                          {galleryAssets.length} {galleryAssets.length === 1 ? "photo" : "photos"} stored
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setIsAssetGalleryOpen(false)}
-                      className="p-1 rounded-lg text-stone-400 hover:text-stone-200 hover:bg-stone-800 transition-colors cursor-pointer"
-                      title="Hide gallery"
-                    >
-                      <span className="text-[10px] font-mono font-bold">✕ Close</span>
-                    </button>
-                  </div>
-
-                  {/* Upload and Bulk Controls */}
-                  <div className="space-y-2.5 mb-3.5">
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => sidebarFileInputRef.current?.click()}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold rounded-xl text-[10px] transition-all cursor-pointer shadow-md"
-                        title="Upload directly to asset library"
-                      >
-                        <Upload className="w-3.5 h-3.5" />
-                        Upload To Gallery
-                      </button>
-                      <input
-                        type="file"
-                        ref={sidebarFileInputRef}
-                        onChange={handleAssetUpload}
-                        accept="image/*,video/*"
-                        multiple
-                        className="hidden"
-                      />
-                      
-                      <button
-                        onClick={selectAllAssets}
-                        disabled={galleryAssets.length === 0}
-                        className="px-2.5 py-2 bg-stone-950 hover:bg-stone-800 border border-stone-800 hover:border-stone-700 text-stone-300 font-bold rounded-xl text-[10px] transition-colors cursor-pointer disabled:opacity-40"
-                        title="Select all stored assets"
-                      >
-                        {selectedAssetIds.size === galleryAssets.length && galleryAssets.length > 0 ? "Clear All" : "Select All"}
-                      </button>
-                    </div>
-
-                    {/* Batch insertion actions */}
-                    {selectedAssetIds.size > 0 && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: 10 }}
-                        className="bg-amber-500/10 border border-amber-500/20 p-2.5 rounded-xl flex items-center justify-between gap-2"
-                      >
-                        <span className="text-[10px] font-bold text-amber-400 font-mono">
-                          {selectedAssetIds.size} Selected
-                        </span>
-                        <div className="flex gap-1.5">
-                          <button
-                            onClick={addSelectedAssetsToProject}
-                            className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-[9px] font-mono rounded-lg transition-colors cursor-pointer"
-                          >
-                            Add To Timeline (+{selectedAssetIds.size})
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (confirm(`Remove these ${selectedAssetIds.size} assets from your gallery?`)) {
-                                selectedAssetIds.forEach(id => deleteAssetFromGallery(id));
-                              }
-                            }}
-                            className="p-1.5 bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/20 text-rose-400 rounded-lg transition-colors cursor-pointer"
-                            title="Delete selected assets"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </motion.div>
-                    )}
-                  </div>
-
-                  {/* Scrollable Gallery Grid */}
-                  <div className="flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-stone-800 scrollbar-track-transparent">
-                    {galleryAssets.length === 0 ? (
-                      <div className="h-full flex flex-col items-center justify-center text-center p-4 text-stone-500 space-y-3">
-                        <div className="p-3 bg-stone-950 border border-stone-850 rounded-full">
-                          <Library className="w-8 h-8 text-stone-600 animate-pulse" />
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-xs font-bold text-stone-300">Your gallery is empty</p>
-                          <p className="text-[9px] text-stone-500 max-w-[180px] leading-relaxed mx-auto">
-                            Bulk uploads and loaded demo snapshots will automatically appear here. Or upload images directly above.
-                          </p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-2 gap-2 pb-4">
-                        {galleryAssets.map((asset, index) => {
-                          const isSelected = selectedAssetIds.has(asset.id);
-                          return (
-                            <div
-                              key={asset.id}
-                              draggable
-                              onDragStart={(e) => handleDragStartAsset(e, index)}
-                              onDragOver={(e) => handleDragOverAsset(e, index)}
-                              onDrop={handleDropAsset}
-                              onDragEnd={handleDragEndAsset}
-                              className={`group/asset relative aspect-square bg-stone-950 rounded-xl overflow-hidden border transition-all duration-200 cursor-grab active:cursor-grabbing ${
-                                isSelected
-                                  ? "border-amber-500 ring-2 ring-amber-500/20 shadow-md"
-                                  : "border-stone-800 hover:border-stone-600"
-                              }`}
-                            >
-                              <img
-                                src={asset.url}
-                                alt={asset.name}
-                                className="w-full h-full object-cover select-none pointer-events-none group-hover/asset:scale-105 transition-transform duration-300"
-                                referrerPolicy="no-referrer"
-                              />
-
-                              {/* Gradient shading */}
-                              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 opacity-60 group-hover/asset:opacity-75 transition-opacity" />
-
-                              {/* Batch Selection Checkbox overlay */}
-                              <div className="absolute top-1.5 left-1.5 z-10">
-                                <button
-                                  type="button"
-                                  onClick={() => toggleAssetSelection(asset.id)}
-                                  className={`w-4 h-4 rounded border flex items-center justify-center transition-all cursor-pointer ${
-                                    isSelected
-                                      ? "bg-amber-500 border-amber-500 text-stone-950"
-                                      : "bg-black/50 border-stone-600 hover:border-amber-500/80"
-                                  }`}
-                                >
-                                  {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
-                                </button>
-                              </div>
-
-                              {/* Name/Size Label */}
-                              <span className="absolute bottom-1 left-1 right-1 text-[8px] font-mono text-stone-300 truncate pointer-events-none bg-stone-950/70 px-1 py-0.5 rounded backdrop-blur-[2px]">
-                                {asset.name || "Unnamed Asset"}
-                              </span>
-
-                              {/* Interactive Hover Actions Panel */}
-                              <div className="absolute inset-0 bg-stone-950/60 opacity-0 group-hover/asset:opacity-100 flex flex-col justify-between p-1.5 transition-all duration-200">
-                                {/* Top corner actions */}
-                                <div className="flex justify-end gap-1 select-none">
-                                  <button
-                                    onClick={() => deleteAssetFromGallery(asset.id)}
-                                    className="p-1 bg-stone-900 hover:bg-rose-500/80 border border-stone-800 text-stone-400 hover:text-white rounded-md transition-colors cursor-pointer"
-                                    title="Remove from gallery"
-                                  >
-                                    <Trash2 className="w-3 h-3" />
-                                  </button>
-                                </div>
-
-                                {/* Drag indicator & click insertion */}
-                                <div className="space-y-1">
-                                  <div className="flex items-center justify-center gap-1">
-                                    <button
-                                      onClick={() => moveAssetInGallery(index, "up")}
-                                      disabled={index === 0}
-                                      className="p-0.5 bg-stone-900 border border-stone-800 text-stone-400 hover:text-white rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                                      title="Move asset up"
-                                    >
-                                      <ChevronLeft className="w-2.5 h-2.5 rotate-90" />
-                                    </button>
-                                    <button
-                                      onClick={() => moveAssetInGallery(index, "down")}
-                                      disabled={index === galleryAssets.length - 1}
-                                      className="p-0.5 bg-stone-900 border border-stone-800 text-stone-400 hover:text-white rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                                      title="Move asset down"
-                                    >
-                                      <ChevronRight className="w-2.5 h-2.5 rotate-90" />
-                                    </button>
-                                  </div>
-                                  
-                                  <button
-                                    onClick={() => addAssetToProject(asset)}
-                                    className="w-full py-1 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-[8px] rounded-lg shadow-sm transition-all flex items-center justify-center gap-0.5 cursor-pointer uppercase"
-                                  >
-                                    <Plus className="w-2.5 h-2.5 stroke-[3]" />
-                                    <span>Add Frame</span>
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                  
-                  {/* Pro-Tip helper */}
-                  <div className="bg-stone-950 p-2.5 rounded-2xl border border-stone-850/60 mt-2 text-stone-500 text-[8px] leading-snug">
-                    💡 <strong>Drag & Drop Support:</strong> Drag photos out of this gallery directly onto the timeline below to insert scenes, or drop onto the preview screen to swap slides!
-                  </div>
-                </motion.aside>
-              )}
-            </AnimatePresence>
-
-            {/* LEFT COLUMN: Cinematic Slide Preview Player */}
-            <section className={`${isAssetGalleryOpen ? "lg:col-span-5" : "lg:col-span-7"} space-y-6 transition-all duration-300`}>
-              {/* High-Fidelity Interactive Slideshow Box */}
-              <div className="bg-stone-900 border border-stone-800 rounded-3xl p-6 shadow-2xl relative">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-4">
-                  <div className="flex items-center gap-2">
-                    <Eye className="w-4 h-4 text-amber-500 animate-pulse" />
-                    <span className="text-xs font-mono font-bold tracking-widest text-stone-300">
-                      LIVE PREVIEW SCREEN
-                    </span>
-                  </div>
-
-                  {/* Dynamic Video Aspect Ratio Picker */}
-                  <div className="flex items-center gap-1 bg-stone-950 p-1 rounded-xl border border-stone-800 self-start sm:self-auto">
-                    <span className="text-[9px] font-mono text-stone-500 px-2 uppercase font-bold">Video Ratio:</span>
-                    {(["16:9", "9:16", "1:1", "4:3"] as const).map((r) => (
-                      <button
-                        key={r}
-                        onClick={() => setVideoAspectRatio(r)}
-                        className={`text-[9px] font-mono font-bold px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
-                          videoAspectRatio === r
-                            ? "bg-amber-500 text-stone-950 shadow shadow-amber-500/20"
-                            : "text-stone-400 hover:text-stone-200 hover:bg-stone-900"
-                        }`}
-                      >
-                        {r}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="flex items-center gap-2.5 self-end sm:self-auto">
-                    <button
-                      onClick={() => setGlobalShowSubtitles(!globalShowSubtitles)}
-                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[10px] font-mono font-bold transition-all cursor-pointer ${
-                        globalShowSubtitles
-                          ? "bg-amber-500/10 border-amber-500/40 text-amber-400"
-                          : "bg-stone-950 border-stone-800 text-stone-500 hover:text-stone-400"
+              {/* Active Image with Motion Animation */}
+              {currentSlide ? (
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={`${currentSlide.id}_${previewToggle}_${currentSlide.transition}`}
+                    className="w-full h-full relative flex items-center justify-center"
+                    {...getMotionAnimation(currentSlide, currentSlide.duration)}
+                  >
+                    <img
+                      src={currentSlide.url}
+                      alt="Current Slide"
+                      className={`w-full h-full ${
+                        currentSlide.fitMode === "contain" ? "object-contain" : "object-cover"
                       }`}
-                      title={globalShowSubtitles ? "Hide all subtitles on video" : "Show subtitles on video"}
-                    >
-                      <FontIcon className="w-3 h-3" />
-                      <span>SUBTITLES {globalShowSubtitles ? "ON" : "OFF"}</span>
-                    </button>
-
+                      style={{ filter: getFilterCss(currentSlide.filter) }}
+                      referrerPolicy="no-referrer"
+                    />
+                  </motion.div>
+                </AnimatePresence>
+              ) : (
+                <div className="flex flex-col items-center justify-center gap-3 p-8 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-[#120c26] border border-dashed border-[#8b5cf6]/50 flex items-center justify-center text-[#ff3d9a]">
+                    <Film className="w-8 h-8" />
+                  </div>
+                  <h3 className="font-extrabold text-base text-white/90">TIMELINE IS EMPTY</h3>
+                  <p className="text-xs text-white/50 max-w-sm">
+                    Add new frames from your library, upload a photo, or use AI Collage to auto-breakdown images into a cinematic video.
+                  </p>
+                  <div className="flex gap-2 mt-2">
                     <button
-                      onClick={() => setIsMuted(!isMuted)}
-                      className="p-1.5 rounded-lg bg-stone-950 border border-stone-800 hover:border-stone-700 text-stone-400 hover:text-stone-200 cursor-pointer"
+                      onClick={() => setShowAiModal(true)}
+                      className="hud-btn hud-btn-cyan px-4 py-2 text-xs font-bold"
                     >
-                      {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                      <Wand2 className="w-3.5 h-3.5 inline mr-1.5" />
+                      AUTO BREAKDOWN COLLAGE
                     </button>
-                    <span className="text-[10px] font-mono bg-stone-950 px-2 py-0.5 rounded border border-stone-800 text-stone-400">
-                      Audio: {activeSoundtrackType === "custom" ? "Uploaded Song" : activeSoundtrackType === "synth" ? "Campus Melodies" : "Silent"}
-                    </span>
+                    <button
+                      onClick={() => setShowGalleryModal(true)}
+                      className="hud-btn px-4 py-2 text-xs"
+                    >
+                      <Plus className="w-3.5 h-3.5 inline mr-1.5" />
+                      ADD FIRST FRAME
+                    </button>
                   </div>
                 </div>
+              )}
 
-                {/* Primary Slide Display Window */}
-                <div className={`relative bg-stone-950 rounded-2xl overflow-hidden border border-stone-800 shadow-inner flex items-center justify-center transition-all duration-300 mx-auto ${
-                  videoAspectRatio === "16:9" ? "aspect-video w-full" :
-                  videoAspectRatio === "9:16" ? "aspect-[9/16] w-full max-w-[320px] sm:h-[520px] sm:w-auto" :
-                  videoAspectRatio === "1:1" ? "aspect-square w-full max-w-[450px] sm:h-[450px] sm:w-auto" :
-                  "aspect-[4/3] w-full max-w-[500px] sm:h-[450px] sm:w-auto"
-                }`}>
-                  <AnimatePresence mode="wait">
-                    {slides[currentIndex] && (
-                      <motion.div
-                        key={slides[currentIndex].id}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.5 }}
-                        className="absolute inset-0 w-full h-full cursor-crosshair group/preview overflow-hidden"
-                        onClick={(e) => {
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const x = ((e.clientX - rect.left) / rect.width) * 100;
-                          const y = ((e.clientY - rect.top) / rect.height) * 100;
-                          const updated = [...slides];
-                          updated[currentIndex] = {
-                            ...updated[currentIndex],
-                            anchorX: Math.round(x),
-                            anchorY: Math.round(y),
-                          };
-                          setSlides(updated);
-                        }}
-                      >
-                        {/* Interactive Image Frame with customized animation transitions & anchor origin pivot */}
-                        {slides[currentIndex].mediaType === "video" ? (
-                          <motion.video
-                            key={slides[currentIndex].id + "_motion_video"}
-                            src={`${slides[currentIndex].url}#t=${slides[currentIndex].trimStart || 0},${slides[currentIndex].trimEnd || slides[currentIndex].duration}`}
-                            className={`w-full h-full ${
-                              slides[currentIndex].fitMode === "contain" ? "object-contain bg-stone-950" : "object-cover"
-                            }`}
-                            autoPlay
-                            loop
-                            muted
-                            playsInline
-                            style={{
-                              filter: getFilterCss(slides[currentIndex]),
-                              transformOrigin: `${slides[currentIndex].anchorX !== undefined ? slides[currentIndex].anchorX : 50}% ${slides[currentIndex].anchorY !== undefined ? slides[currentIndex].anchorY : 50}%`,
-                              clipPath: (slides[currentIndex].cropLeft || slides[currentIndex].cropRight || slides[currentIndex].cropTop || slides[currentIndex].cropBottom) ? `inset(${slides[currentIndex].cropTop || 0}% ${slides[currentIndex].cropRight || 0}% ${slides[currentIndex].cropBottom || 0}% ${slides[currentIndex].cropLeft || 0}%)` : undefined,
-                            }}
-                            {...getMotionAnimation(slides[currentIndex], slides[currentIndex].duration)}
-                          />
-                        ) : (
-                          <motion.img
-                            key={slides[currentIndex].id + "_motion"}
-                            src={slides[currentIndex].url}
-                            alt="Cinematic Image Frame"
-                            className={`w-full h-full ${
-                              slides[currentIndex].fitMode === "contain" ? "object-contain bg-stone-950" : "object-cover"
-                            }`}
-                            referrerPolicy="no-referrer"
-                            style={{
-                              filter: getFilterCss(slides[currentIndex]),
-                              transformOrigin: `${slides[currentIndex].anchorX !== undefined ? slides[currentIndex].anchorX : 50}% ${slides[currentIndex].anchorY !== undefined ? slides[currentIndex].anchorY : 50}%`,
-                              clipPath: (slides[currentIndex].cropLeft || slides[currentIndex].cropRight || slides[currentIndex].cropTop || slides[currentIndex].cropBottom) ? `inset(${slides[currentIndex].cropTop || 0}% ${slides[currentIndex].cropRight || 0}% ${slides[currentIndex].cropBottom || 0}% ${slides[currentIndex].cropLeft || 0}%)` : undefined,
-                            }}
-                            {...getMotionAnimation(slides[currentIndex], slides[currentIndex].duration)}
-                          />
-                        )}
-
-                        {/* LIVE PREVIEW VISUAL EFFECTS (VFX) */}
-                        {slides[currentIndex].vfxType && slides[currentIndex].vfxType !== "none" && (
-                          <>
-                            {/* VFX: Lens Flare */}
-                            {slides[currentIndex].vfxType === "lens_flare" && (
-                              <div className="absolute inset-0 z-12 pointer-events-none mix-blend-screen overflow-hidden">
-                                <div 
-                                  className="absolute rounded-full"
-                                  style={{
-                                    left: `${slides[currentIndex].anchorX !== undefined ? slides[currentIndex].anchorX : 50}%`,
-                                    top: `${slides[currentIndex].anchorY !== undefined ? slides[currentIndex].anchorY : 50}%`,
-                                    width: `${(slides[currentIndex].vfxIntensity || 50) * 4}px`,
-                                    height: `${(slides[currentIndex].vfxIntensity || 50) * 4}px`,
-                                    transform: "translate(-50%, -50%)",
-                                    background: "radial-gradient(circle, rgba(255, 245, 220, 0.95) 0%, rgba(245, 158, 11, 0.4) 25%, rgba(239, 68, 68, 0.12) 55%, rgba(0, 0, 0, 0) 70%)",
-                                    filter: "blur(2px)"
-                                  }}
-                                />
-                                <div 
-                                  className="absolute"
-                                  style={{
-                                    left: `${slides[currentIndex].anchorX !== undefined ? slides[currentIndex].anchorX : 50}%`,
-                                    top: `${slides[currentIndex].anchorY !== undefined ? slides[currentIndex].anchorY : 50}%`,
-                                    width: "300%",
-                                    height: `${(slides[currentIndex].vfxIntensity || 50) * 0.12 + 1}px`,
-                                    transform: "translate(-50%, -50%) rotate(-12deg)",
-                                    background: "linear-gradient(90deg, rgba(59,130,246,0) 0%, rgba(59,130,246,0.35) 20%, rgba(255,255,255,0.95) 50%, rgba(245,158,11,0.35) 80%, rgba(245,158,11,0) 100%)",
-                                    opacity: (slides[currentIndex].vfxIntensity || 50) / 100
-                                  }}
-                                />
-                                <div 
-                                  className="absolute rounded-full"
-                                  style={{
-                                    left: `${(slides[currentIndex].anchorX !== undefined ? slides[currentIndex].anchorX : 50) * 0.7 + 15}%`,
-                                    top: `${(slides[currentIndex].anchorY !== undefined ? slides[currentIndex].anchorY : 50) * 0.7 + 15}%`,
-                                    width: `${(slides[currentIndex].vfxIntensity || 50) * 0.7 + 15}px`,
-                                    height: `${(slides[currentIndex].vfxIntensity || 50) * 0.7 + 15}px`,
-                                    transform: "translate(-50%, -50%)",
-                                    background: "radial-gradient(circle, rgba(59,130,246,0.18) 0%, rgba(139,92,246,0.06) 60%, rgba(0,0,0,0) 100%)",
-                                    border: "1px solid rgba(59,130,246,0.12)",
-                                    opacity: (slides[currentIndex].vfxIntensity || 50) / 100
-                                  }}
-                                />
-                                <div 
-                                  className="absolute rounded-full"
-                                  style={{
-                                    left: `${(slides[currentIndex].anchorX !== undefined ? slides[currentIndex].anchorX : 50) * 0.45 + 27.5}%`,
-                                    top: `${(slides[currentIndex].anchorY !== undefined ? slides[currentIndex].anchorY : 50) * 0.45 + 27.5}%`,
-                                    width: `${(slides[currentIndex].vfxIntensity || 50) * 1.1 + 25}px`,
-                                    height: `${(slides[currentIndex].vfxIntensity || 50) * 1.1 + 25}px`,
-                                    transform: "translate(-50%, -50%)",
-                                    background: "radial-gradient(circle, rgba(239,68,68,0.12) 0%, rgba(245,158,11,0.04) 65%, rgba(0,0,0,0) 100%)",
-                                    border: "1px solid rgba(239,68,68,0.08)",
-                                    opacity: (slides[currentIndex].vfxIntensity || 50) / 100
-                                  }}
-                                />
-                              </div>
-                            )}
-
-                            {/* VFX: Light Leak */}
-                            {slides[currentIndex].vfxType === "light_leak" && (
-                              <div className="absolute inset-0 z-12 pointer-events-none mix-blend-screen overflow-hidden">
-                                <div 
-                                  className="absolute inset-0 animate-light-leak"
-                                  style={{
-                                    background: "radial-gradient(circle at 15% 15%, rgba(245, 158, 11, 0.4) 0%, rgba(239, 68, 68, 0.22) 30%, rgba(139, 92, 246, 0.1) 50%, rgba(0, 0, 0, 0) 80%), radial-gradient(circle at 85% 85%, rgba(236, 72, 153, 0.3) 0%, rgba(239, 68, 68, 0.15) 35%, rgba(0, 0, 0, 0) 70%)",
-                                    opacity: (slides[currentIndex].vfxIntensity || 50) / 100
-                                  }}
-                                />
-                              </div>
-                            )}
-
-                            {/* VFX: Film Grain & Vintage Noise */}
-                            {slides[currentIndex].vfxType === "film_grain" && (
-                              <div className="absolute inset-0 z-12 pointer-events-none overflow-hidden select-none">
-                                <div 
-                                  className="absolute -inset-[20%] animate-film-grain bg-repeat"
-                                  style={{
-                                    backgroundImage: "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E\")",
-                                    opacity: ((slides[currentIndex].vfxIntensity || 50) / 100) * 0.16
-                                  }}
-                                />
-                                <div className="absolute inset-0 opacity-40">
-                                  <div className="absolute w-[1px] h-12 bg-white/40 left-[25%] top-[15%] rotate-[5deg] animate-[pulse_0.15s_infinite]" />
-                                  <div className="absolute w-[1.5px] h-6 bg-stone-900/40 left-[72%] top-[48%] -rotate-[12deg] animate-[pulse_0.23s_infinite]" />
-                                  <div className="absolute w-2 h-2 rounded-full bg-white/30 left-[45%] top-[80%] animate-[pulse_0.08s_infinite]" />
-                                </div>
-                              </div>
-                            )}
-
-                            {/* VFX: Cozy Snow Particle Drift */}
-                            {slides[currentIndex].vfxType === "snow" && (
-                              <div className="absolute inset-0 z-12 pointer-events-none overflow-hidden select-none">
-                                {[...Array(15)].map((_, i) => {
-                                  const left = (i * 7.5 + (i % 3) * 5) % 100;
-                                  const delay = (i * 0.35).toFixed(2);
-                                  const duration = (3.0 + (i % 4) * 0.95).toFixed(2);
-                                  return (
-                                    <div
-                                      key={i}
-                                      className="absolute bg-white rounded-full animate-drift-snow"
-                                      style={{
-                                        left: `${left}%`,
-                                        top: `-15px`,
-                                        width: i % 3 === 0 ? "10px" : i % 3 === 1 ? "6px" : "4px",
-                                        height: i % 3 === 0 ? "10px" : i % 3 === 1 ? "6px" : "4px",
-                                        opacity: ((slides[currentIndex].vfxIntensity || 50) / 100) * (i % 2 === 0 ? 0.8 : 0.5),
-                                        animationDelay: `${delay}s`,
-                                        animationDuration: `${duration}s`,
-                                        filter: i % 3 === 0 ? "blur(1px)" : "none"
-                                      }}
-                                    />
-                                  );
-                                })}
-                              </div>
-                            )}
-
-                            {/* VFX: Cinematic Raindrops */}
-                            {slides[currentIndex].vfxType === "rain" && (
-                              <div className="absolute inset-0 z-12 pointer-events-none overflow-hidden select-none">
-                                {[...Array(20)].map((_, i) => {
-                                  const left = (i * 6 + (i % 4) * 7) % 100;
-                                  const delay = (i * 0.12).toFixed(2);
-                                  const duration = (0.5 + (i % 3) * 0.15).toFixed(2);
-                                  return (
-                                    <div
-                                      key={i}
-                                      className="absolute bg-gradient-to-b from-white/30 to-white/0 rounded-full animate-drift-rain"
-                                      style={{
-                                        left: `${left}%`,
-                                        top: `-80px`,
-                                        width: "1.5px",
-                                        height: "60px",
-                                        opacity: ((slides[currentIndex].vfxIntensity || 50) / 100) * 0.6,
-                                        animationDelay: `${delay}s`,
-                                        animationDuration: `${duration}s`,
-                                      }}
-                                    />
-                                  );
-                                })}
-                              </div>
-                            )}
-
-                            {/* VFX: VHS Vintage Analog Scanlines & Glitch */}
-                            {slides[currentIndex].vfxType === "vhs" && (
-                              <div className="absolute inset-0 z-12 pointer-events-none overflow-hidden select-none animate-vhs-flicker">
-                                <div 
-                                  className="absolute inset-0 opacity-[0.25]"
-                                  style={{
-                                    backgroundImage: "linear-gradient(to bottom, rgba(0,0,0,0.85) 50%, rgba(255,255,255,0.08) 50%)",
-                                    backgroundSize: "100% 4px",
-                                    opacity: ((slides[currentIndex].vfxIntensity || 50) / 100) * 0.35
-                                  }}
-                                />
-                                <div 
-                                  className="absolute w-full h-8 bg-white/10 blur-[2px] animate-vhs-roll"
-                                  style={{
-                                    opacity: ((slides[currentIndex].vfxIntensity || 50) / 100) * 0.25
-                                  }}
-                                />
-                                <div className="absolute bottom-0 left-0 right-0 h-4 bg-stone-900/60 flex items-center justify-between select-none px-2 opacity-50 text-[6px] font-mono font-bold tracking-wider text-green-400">
-                                  <span>PLAY ▷</span>
-                                  <span>0:04:12</span>
-                                  <span>VCR-240p</span>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* VFX: Dreamy Floating Bokeh Orbs */}
-                            {slides[currentIndex].vfxType === "bokeh" && (
-                              <div className="absolute inset-0 z-12 pointer-events-none overflow-hidden select-none">
-                                {[...Array(12)].map((_, i) => {
-                                  const left = (i * 9 + (i % 3) * 8) % 100;
-                                  const delay = (i * 0.45).toFixed(2);
-                                  const duration = (5.0 + (i % 3) * 1.5).toFixed(2);
-                                  return (
-                                    <div
-                                      key={i}
-                                      className="absolute rounded-full animate-float-bokeh"
-                                      style={{
-                                        left: `${left}%`,
-                                        bottom: `-40px`,
-                                        width: i % 3 === 0 ? "32px" : i % 3 === 1 ? "48px" : "20px",
-                                        height: i % 3 === 0 ? "32px" : i % 3 === 1 ? "48px" : "20px",
-                                        background: "radial-gradient(circle, rgba(245,158,11,0.22) 0%, rgba(245,158,11,0.06) 65%, rgba(0,0,0,0) 100%)",
-                                        opacity: ((slides[currentIndex].vfxIntensity || 50) / 100) * 0.85,
-                                        animationDelay: `${delay}s`,
-                                        animationDuration: `${duration}s`,
-                                        filter: "blur(2px)",
-                                        border: "1px solid rgba(245,158,11,0.08)"
-                                      }}
-                                    />
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </>
-                        )}
-
-                        {/* Live Masking Overlay */}
-                        {slides[currentIndex].maskType && slides[currentIndex].maskType !== "none" && (
-                          <div
-                            className="absolute inset-0 z-10 pointer-events-none transition-all duration-300"
-                            style={{
-                              background: (() => {
-                                const pinX = slides[currentIndex].anchorX !== undefined ? slides[currentIndex].anchorX : 50;
-                                const pinY = slides[currentIndex].anchorY !== undefined ? slides[currentIndex].anchorY : 50;
-                                const radius = slides[currentIndex].maskRadius || 40;
-                                const feather = slides[currentIndex].maskFeather || 50;
-                                const mType = slides[currentIndex].maskType;
-                                if (mType === "radial_focus") {
-                                  return `radial-gradient(circle at ${pinX}% ${pinY}%, rgba(0,0,0,0) ${radius * (1 - feather / 100)}%, rgba(9,5,4,0.72) ${radius}%)`;
-                                } else if (mType === "vignette") {
-                                  return `radial-gradient(circle at ${pinX}% ${pinY}%, rgba(0,0,0,0) ${radius * (1 - feather / 100)}%, rgba(9,5,4,0.92) ${radius}%)`;
-                                } else if (mType === "split_mask") {
-                                  return `linear-gradient(to bottom, rgba(9,5,4,0.75) 0%, rgba(0,0,0,0) 50%, rgba(9,5,4,0.75) 100%)`;
-                                }
-                                return "none";
-                              })()
-                            }}
-                          />
-                        )}
-
-                        {/* Anchor point focal target pin */}
-                        <div
-                          className="absolute w-8 h-8 -ml-4 -mt-4 flex items-center justify-center pointer-events-none z-30 transition-all duration-300"
-                          style={{
-                            left: `${slides[currentIndex].anchorX !== undefined ? slides[currentIndex].anchorX : 50}%`,
-                            top: `${slides[currentIndex].anchorY !== undefined ? slides[currentIndex].anchorY : 50}%`,
-                          }}
-                        >
-                          <div className="absolute inset-0 rounded-full bg-amber-500/20 border border-amber-500 animate-ping" />
-                          <div className="w-3 h-3 rounded-full bg-amber-500 ring-2 ring-stone-950 flex items-center justify-center shadow-lg shadow-amber-500/40">
-                            <div className="w-1.5 h-1.5 bg-stone-950 rounded-full" />
-                          </div>
-                          <span className="absolute left-5 bg-stone-950/90 border border-stone-800 text-[8px] font-mono font-bold text-amber-500 px-1 py-0.5 rounded whitespace-nowrap uppercase shadow">
-                            Anchor Focus ({slides[currentIndex].anchorX !== undefined ? slides[currentIndex].anchorX : 50}%, {slides[currentIndex].anchorY !== undefined ? slides[currentIndex].anchorY : 50}%)
-                          </span>
-                        </div>
-
-                        {/* Motion Vector Direction Indicator HUD */}
-                        {slides[currentIndex].motionSpeed && slides[currentIndex].motionSpeed > 0 && (
-                          <div
-                            className="absolute pointer-events-none z-30 flex items-center justify-center transition-all duration-300"
-                            style={{
-                              left: `${slides[currentIndex].anchorX !== undefined ? slides[currentIndex].anchorX : 50}%`,
-                              top: `${slides[currentIndex].anchorY !== undefined ? slides[currentIndex].anchorY : 50}%`,
-                              transform: `rotate(${(slides[currentIndex].motionAngle || 0) - 90}deg)`, // Adjust arrow angle offset
-                            }}
-                          >
-                            <div
-                              className="h-0.5 bg-gradient-to-r from-amber-500 to-amber-500/10 origin-left"
-                              style={{
-                                width: `${(slides[currentIndex].motionSpeed || 20) * 1.5}px`,
-                                boxShadow: "0 0 8px rgba(245,158,11,0.6)"
-                              }}
-                            />
-                            <div
-                              className="w-2 h-2 border-t-2 border-r-2 border-amber-500 absolute rotate-45"
-                              style={{
-                                left: `${(slides[currentIndex].motionSpeed || 20) * 1.5}px`,
-                              }}
-                            />
-                          </div>
-                        )}
-
-                        {/* Modern Gradient Shading overlay */}
-                        <div className="absolute inset-0 bg-gradient-to-t from-stone-950 via-transparent to-stone-950/40 pointer-events-none" />
-
-                        {/* Quick Click helper overlay on hover */}
-                        <div className="absolute top-3 right-3 z-20 pointer-events-none opacity-0 group-hover/preview:opacity-100 transition-opacity bg-stone-950/85 px-2.5 py-1 rounded-lg border border-stone-800 text-[8px] font-mono font-bold uppercase tracking-wider text-stone-400">
-                          Click Screen to Adjust Anchor Target
-                        </div>
-
-                        {/* Interactive Caption Overlay */}
-                        <div className="absolute bottom-6 left-6 right-6 z-20 text-center">
-                          {globalShowSubtitles && slides[currentIndex].showSubtitle !== false && slides[currentIndex].caption && (
-                            <p className="text-stone-100 font-extrabold text-lg md:text-xl drop-shadow-lg max-w-2xl mx-auto leading-relaxed mb-3">
-                              "{slides[currentIndex].caption}"
-                            </p>
-                          )}
-                          <div className="flex items-center justify-center gap-2">
-                            <span className="text-[10px] font-mono text-amber-500 bg-stone-950/80 px-2.5 py-0.5 rounded-full border border-stone-800">
-                              FRAME {currentIndex + 1} OF {slides.length}
-                            </span>
-                            <span className="text-[10px] font-mono text-stone-400 bg-stone-950/80 px-2.5 py-0.5 rounded-full border border-stone-800 uppercase">
-                              Effect: {slides[currentIndex].transition}
-                            </span>
-                          </div>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+              {/* Subtitle / Caption Overlay on Preview */}
+              {currentSlide && currentSlide.caption && (
+                <div className="absolute bottom-4 inset-x-4 z-20 flex justify-center pointer-events-none">
+                  <div className="hud-glass-card px-4 py-2 rounded-xl border border-[#22d3ee]/40 bg-[#0e0a1e]/90 text-center max-w-md shadow-2xl">
+                    <p className="text-xs sm:text-sm font-semibold text-white tracking-wide">
+                      {currentSlide.caption}
+                    </p>
+                  </div>
                 </div>
+              )}
 
-                {/* Timeline Progress Bar indicator - removed by user request */}
-                <div className="mt-4 space-y-4">
-                  {/* Primary Video Player Buttons */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between pt-1 gap-4">
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => setIsPlaying(!isPlaying)}
-                        className="w-11 h-11 rounded-full bg-amber-500 hover:bg-amber-400 text-stone-950 flex items-center justify-center font-bold transition-all shadow-lg shadow-amber-500/10 cursor-pointer"
-                      >
-                        {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
-                      </button>
-                      
-                      <button
-                        onClick={() => {
-                          setIsPlaying(false);
-                          setCurrentIndex(0);
-                          setProgress(0);
-                        }}
-                        className="w-9 h-9 rounded-full bg-stone-950 border border-stone-800 hover:border-stone-700 text-stone-400 hover:text-stone-200 flex items-center justify-center transition-all cursor-pointer"
-                        title="Reset Slideshow"
-                      >
-                        <RotateCcw className="w-4 h-4" />
-                      </button>
-                    </div>
+              {/* Thin Slide Progress Bar at the Bottom of Preview */}
+              {currentSlide && (
+                <div className="absolute bottom-0 inset-x-0 h-1 bg-[#120c26] z-20">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#ff3d9a] to-[#22d3ee] transition-all duration-75"
+                    style={{
+                      width: `${Math.min(100, (currentSlideTime / currentSlide.duration) * 100)}%`
+                    }}
+                  />
+                </div>
+              )}
+            </div>
 
-                    <div className="flex items-center gap-4 text-xs font-mono text-stone-400 bg-stone-950 px-3 py-1.5 rounded-xl border border-stone-800">
-                      <span>
-                        Slide duration: <strong className="text-amber-500">{slides[currentIndex]?.duration || 3}s</strong>
-                      </span>
-                      <span className="text-stone-700">|</span>
-                      <span>
-                        Total Video: <strong className="text-amber-500">{slides.reduce((acc, curr) => acc + curr.duration, 0)}s</strong>
-                      </span>
-                    </div>
+            {/* PLAYBACK CONTROL TOOLBAR */}
+            <div className="w-full mt-3 pt-3 border-t border-[#8b5cf6]/20 flex flex-wrap items-center justify-between gap-3">
+              {/* Playback Buttons */}
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => {
+                    setCurrentIndex(p => Math.max(0, p - 1));
+                    setCurrentSlideTime(0);
+                  }}
+                  className="hud-btn p-2 rounded-lg"
+                  title="Previous Slide (Left Arrow)"
+                  disabled={slides.length === 0}
+                >
+                  <SkipBack className="w-4 h-4" />
+                </button>
 
-                     {/* Quality resolution selector and compile button */}
-                    <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                      <div className="relative">
-                        <select
-                          value={exportFormat}
-                          onChange={(e) => setExportFormat(e.target.value as any)}
-                          className="bg-stone-950 border border-stone-800 hover:border-stone-700 rounded-xl px-3 py-2 text-xs text-stone-300 focus:border-amber-500/50 focus:outline-none cursor-pointer font-mono font-bold h-11"
-                          disabled={isExporting}
-                          title="Select export format"
-                        >
-                          <option value="mp4">Format: MP4</option>
-                          <option value="webm">Format: WebM</option>
-                        </select>
-                      </div>
+                <button
+                  onClick={() => setIsPlaying(p => !p)}
+                  className={`hud-btn p-2.5 rounded-xl ${
+                    isPlaying
+                      ? "hud-btn-cyan"
+                      : "hud-btn-primary"
+                  }`}
+                  title={isPlaying ? "Pause (Space)" : "Play (Space)"}
+                  disabled={slides.length === 0}
+                >
+                  {isPlaying ? (
+                    <Pause className="w-4 h-4 fill-current" />
+                  ) : (
+                    <Play className="w-4 h-4 fill-current" />
+                  )}
+                </button>
 
-                      <div className="relative">
-                        <select
-                          value={exportResolution}
-                          onChange={(e) => setExportResolution(e.target.value as any)}
-                          className="bg-stone-950 border border-stone-800 hover:border-stone-700 rounded-xl px-3 py-2 text-xs text-stone-300 focus:border-amber-500/50 focus:outline-none cursor-pointer font-mono font-bold h-11"
-                          disabled={isExporting}
-                          title="Select export resolution"
-                        >
-                          <option value="720p">720p HD</option>
-                          <option value="1080p">1080p FHD</option>
-                          <option value="4k">4K UHD</option>
-                          <option value="8k">8K Cinema</option>
-                        </select>
-                      </div>
+                <button
+                  onClick={() => {
+                    setCurrentIndex(p => Math.min(slides.length - 1, p + 1));
+                    setCurrentSlideTime(0);
+                  }}
+                  className="hud-btn p-2 rounded-lg"
+                  title="Next Slide (Right Arrow)"
+                  disabled={slides.length === 0}
+                >
+                  <SkipForward className="w-4 h-4" />
+                </button>
 
-                      <button
-                        onClick={exportHighDefinitionVideo}
-                        disabled={isExporting || slides.length === 0}
-                        className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-stone-950 hover:scale-[1.02] rounded-xl text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shadow-lg shadow-amber-500/10 h-11"
-                      >
-                        {isExporting ? (
-                          <>
-                            <RefreshCw className="w-4 h-4 animate-spin" />
-                            <span>{exportProgress}%</span>
-                          </>
-                        ) : (
-                          <>
-                            <Download className="w-4 h-4" />
-                            <span>Compile & Download</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
+                <button
+                  onClick={() => setIsLooping(l => !l)}
+                  className={`hud-btn p-2 rounded-lg ${
+                    isLooping ? "text-[#22d3ee] border-[#22d3ee]/60" : "text-white/40"
+                  }`}
+                  title="Toggle Looping Playback"
+                >
+                  <Repeat className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Timecode & Scrubber Info */}
+              <div className="font-mono-hud text-xs flex items-center gap-3">
+                <span className="text-white/80 font-bold">
+                  {formatTimecode(totalElapsedTime)}
+                </span>
+                <span className="text-white/30">/</span>
+                <span className="text-white/50">
+                  {formatTimecode(totalDuration)}
+                </span>
+              </div>
+
+              {/* Audio Synth Toggle & Volume */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsMusicEnabled(m => !m)}
+                  className={`hud-btn flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs ${
+                    isMusicEnabled ? "hud-btn-cyan" : "text-white/40"
+                  }`}
+                  title="Synthesized Background Music (Web Audio API)"
+                >
+                  {isMusicEnabled ? (
+                    <Volume2 className="w-3.5 h-3.5 text-[#22d3ee]" />
+                  ) : (
+                    <VolumeX className="w-3.5 h-3.5" />
+                  )}
+                  <span className="font-mono-hud text-[9px]">
+                    {isMusicEnabled ? "BGM ON" : "BGM OFF"}
+                  </span>
+                </button>
+
+                {isMusicEnabled && (
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={musicVolume}
+                    onChange={e => setMusicVolume(Number(e.target.value))}
+                    className="hud-slider w-16"
+                    title={`Music Volume: ${musicVolume}%`}
+                  />
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* TWO-CARD ROW DIRECTLY UNDER PREVIEW (Keyframe Still + Shot Info) */}
+          {currentSlide && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Left Card: Keyframe / Still Card */}
+              <div className="hud-glass-card p-3 flex items-center gap-3">
+                <div className="hud-bracket hud-bracket-tl" />
+                <div className="hud-bracket hud-bracket-br" />
+                <div className="relative w-24 h-16 rounded-lg overflow-hidden bg-black border border-[#8b5cf6]/40 flex-shrink-0 group">
+                  <img
+                    src={currentSlide.url}
+                    alt="Keyframe Still"
+                    className="w-full h-full object-cover"
+                    style={{ filter: getFilterCss(currentSlide.filter) }}
+                  />
+                  {/* Sweeping scan line on still */}
+                  <div className="absolute inset-y-0 w-8 bg-gradient-to-r from-transparent via-[#22d3ee]/40 to-transparent animate-scan-sweep pointer-events-none" />
+                  <button
+                    onClick={() => {
+                      setCurrentSlideTime(0);
+                      setPreviewToggle(p => p + 1);
+                    }}
+                    className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity cursor-pointer"
+                    title="Replay Transition Animation"
+                  >
+                    <Play className="w-4 h-4 fill-white text-white" />
+                  </button>
+                  <span className="absolute top-1 right-1 font-mono-hud text-[7px] bg-[#07050f]/80 px-1 py-0.5 rounded text-[#22d3ee]">
+                    STILL
+                  </span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="font-mono-hud text-[8px] text-[#22d3ee]">KEYFRAME // STILL</span>
+                  <p className="text-xs font-bold text-white truncate mt-0.5">
+                    {currentSlide.caption || "Frame Scene Still"}
+                  </p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="font-mono-hud text-[8px] px-1.5 py-0.5 rounded bg-[#8b5cf6]/20 border border-[#8b5cf6]/40 text-[#ff3d9a]">
+                      IMAGE → VIDEO
+                    </span>
+                    <button
+                      onClick={() => {
+                        setCurrentSlideTime(0);
+                        setPreviewToggle(p => p + 1);
+                      }}
+                      className="font-mono-hud text-[8px] text-white/50 hover:text-[#22d3ee] underline cursor-pointer"
+                    >
+                      REPLAY
+                    </button>
                   </div>
                 </div>
               </div>
 
-              {/* PRE-EXPORT VIDEO STORYBOARD SUMMARY */}
-              <AnimatePresence>
-                {slides.length > 0 && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
-                    transition={{ duration: 0.4, ease: "easeOut" }}
-                    className="bg-stone-900 border border-stone-800 rounded-3xl p-6 shadow-2xl space-y-4"
-                  >
-                    <div className="flex items-center justify-between border-b border-stone-800/80 pb-3 mb-1">
-                      <div className="flex items-center gap-2">
-                        <Video className="w-5 h-5 text-amber-500 animate-pulse" />
-                        <h3 className="text-sm font-extrabold text-stone-200 uppercase tracking-wider font-mono">
-                          Video Summary & Script Sequence
-                        </h3>
-                      </div>
-                      <span className="text-[10px] font-mono text-emerald-400 font-bold bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20 animate-pulse flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                        Ready to Render
-                      </span>
-                    </div>
-
-                    <p className="text-xs text-stone-400 leading-relaxed">
-                      Review your sequence timeline, subtitles, and total estimated render duration below. Click any storyboard scene to jump directly to its editor frame.
-                    </p>
-
-                    {/* Summary Metric Stats Dashboard Grid */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                      <div className="bg-stone-950 p-2.5 rounded-xl border border-stone-800/70 text-center">
-                        <span className="block text-[8px] font-mono text-stone-500 uppercase tracking-wider">Total Duration</span>
-                        <span className="text-sm font-extrabold text-amber-500 font-mono">
-                          {slides.reduce((acc, curr) => acc + curr.duration, 0)}s
-                        </span>
-                      </div>
-                      <div className="bg-stone-950 p-2.5 rounded-xl border border-stone-800/70 text-center">
-                        <span className="block text-[8px] font-mono text-stone-500 uppercase tracking-wider">Scenes count</span>
-                        <span className="text-sm font-extrabold text-stone-200 font-mono">
-                          {slides.length} Clips
-                        </span>
-                      </div>
-                      <div className="bg-stone-950 p-2.5 rounded-xl border border-stone-800/70 text-center">
-                        <span className="block text-[8px] font-mono text-stone-500 uppercase tracking-wider">Aspect Ratio</span>
-                        <span className="text-sm font-extrabold text-stone-200 font-mono">
-                          {videoAspectRatio}
-                        </span>
-                      </div>
-                      <div className="bg-stone-950 p-2.5 rounded-xl border border-stone-800/70 text-center">
-                        <span className="block text-[8px] font-mono text-stone-500 uppercase tracking-wider">Export Setup</span>
-                        <span className="text-xs font-bold text-amber-500/95 font-mono uppercase truncate block mt-0.5">
-                          {exportFormat} • {exportResolution}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Active Slide Captions & Duration Storyboard List */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-[10px] font-mono text-stone-500 uppercase tracking-wider px-1">
-                        <span>Timeline Script Sequence</span>
-                        <span>Duration / FX</span>
-                      </div>
-
-                      <div className="max-h-[220px] overflow-y-auto space-y-2 pr-1 scrollbar-thin scrollbar-thumb-stone-800 scrollbar-track-transparent">
-                        {slides.map((slide, idx) => {
-                          const isActive = currentIndex === idx;
-                          return (
-                            <div
-                              key={slide.id}
-                              onClick={() => {
-                                setCurrentIndex(idx);
-                                setProgress(0);
-                                setIsPlaying(false);
-                              }}
-                              className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between gap-3 group relative overflow-hidden ${
-                                isActive
-                                  ? "border-amber-500 bg-amber-500/5 shadow-md shadow-amber-500/5"
-                                  : "border-stone-800/80 bg-stone-950/40 hover:bg-stone-950/85 hover:border-stone-700"
-                              }`}
-                            >
-                              {/* Batch Selection Checkbox */}
-                              <div 
-                                onClick={(e) => {
-                                  e.stopPropagation(); // Avoid selecting slide for editing
-                                  toggleSlideCheck(slide.id);
-                                }}
-                                className="flex-shrink-0 cursor-pointer p-0.5 text-stone-600 hover:text-amber-500 transition-colors z-10"
-                                title="Toggle check frame for batch operations"
-                              >
-                                {checkedSlideIds.has(slide.id) ? (
-                                  <CheckSquare className="w-4 h-4 text-amber-500" />
-                                ) : (
-                                  <Square className="w-4 h-4 text-stone-700 hover:text-stone-500" />
-                                )}
-                              </div>
-
-                              {/* Slide Scene Thumbnail with Number Overlay */}
-                              <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 bg-stone-950 border border-stone-800 relative group-hover:scale-[1.03] transition-transform">
-                                <img
-                                  src={slide.url}
-                                  alt={`Scene ${idx + 1}`}
-                                  className="w-full h-full object-cover pointer-events-none"
-                                  referrerPolicy="no-referrer"
-                                />
-                                <div className="absolute inset-0 bg-black/10" />
-                                <span className="absolute bottom-0 right-0 bg-stone-950/90 border-t border-l border-stone-800 text-[8px] font-mono font-extrabold text-amber-500 px-1 rounded-tl">
-                                  #{(idx + 1).toString().padStart(2, "0")}
-                                </span>
-                                {isActive && (
-                                  <div className="absolute inset-0 bg-amber-500/25 flex items-center justify-center">
-                                    <div className="w-2.5 h-2.5 bg-amber-500 rounded-full animate-ping" />
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Middle Column: Script line / Slide caption */}
-                              <div className="flex-1 min-w-0 space-y-1">
-                                <div className="flex items-center gap-1.5">
-                                  <span className={`text-[10px] font-bold font-mono ${isActive ? "text-amber-400" : "text-stone-300"}`}>
-                                    Scene {idx + 1}
-                                  </span>
-                                  {slide.name && (
-                                    <span className="text-[9px] text-stone-500 font-mono truncate max-w-[120px]">
-                                      ({slide.name})
-                                    </span>
-                                  )}
-                                </div>
-                                <p 
-                                  className={`text-xs truncate leading-snug font-medium ${
-                                    slide.caption 
-                                      ? "text-stone-200" 
-                                      : "text-stone-500 italic"
-                                  }`}
-                                >
-                                  {slide.caption ? `"${slide.caption}"` : "(No caption subtitle set)"}
-                                </p>
-                              </div>
-
-                              {/* Right Column: Duration, transition and optional effects badges */}
-                              <div className="flex flex-col items-end gap-1.5 flex-shrink-0 text-right">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-[10px] font-mono font-bold text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/15">
-                                    {slide.duration}s
-                                  </span>
-                                </div>
-                                
-                                <div className="flex items-center gap-1 flex-wrap justify-end">
-                                  <span className="text-[8px] font-mono text-stone-400 bg-stone-900 border border-stone-800 px-1.5 py-0.5 rounded uppercase">
-                                    {slide.transition === "zoom" ? "Zoom In" : slide.transition === "zoomOut" ? "Zoom Out" : slide.transition === "panLeft" ? "Pan L" : slide.transition === "panRight" ? "Pan R" : slide.transition === "tiltUp" ? "Tilt U" : slide.transition === "tiltDown" ? "Tilt D" : slide.transition === "slideUp" ? "Slide U" : slide.transition === "slideLeft" ? "Slide L" : slide.transition === "slideRight" ? "Slide R" : slide.transition === "blurFade" ? "Blur" : slide.transition === "retroSpin" ? "Spin" : slide.transition === "vortex" ? "Vortex" : slide.transition === "glitch" ? "Glitch" : "Fade"}
-                                  </span>
-                                  {slide.vfxType && slide.vfxType !== "none" && (
-                                    <span className="text-[8px] font-mono text-amber-400 bg-amber-500/10 border border-amber-500/10 px-1 py-0.5 rounded flex items-center gap-0.5">
-                                      ✨ {slide.vfxType === "lens_flare" ? "Flare" : slide.vfxType === "light_leak" ? "Leak" : slide.vfxType === "film_grain" ? "Grain" : slide.vfxType === "snow" ? "Snow" : slide.vfxType === "rain" ? "Rain" : slide.vfxType === "vhs" ? "VHS" : "Bokeh"}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    <p className="text-[9px] text-stone-500 leading-normal">
-                      💡 <strong>Pro Tip:</strong> All text captions will compile directly onto the final frame as high-contrast cinematic subtitles. Set durations and customize transition vectors per scene above to align with your soundtrack tempo.
-                    </p>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Bulk Timeline Controls Area */}
-              <div className="bg-stone-900/60 border border-stone-800 rounded-3xl p-5 shadow-xl space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Sliders className="w-4.5 h-4.5 text-amber-500" />
-                    <h3 className="text-sm font-bold text-stone-200">Bulk Slide Automation</h3>
+              {/* Right Card: Shot Telemetry Card with Big Gradient Number */}
+              <div className="hud-glass-card p-3 flex items-center justify-between gap-3">
+                <div className="hud-bracket hud-bracket-tr" />
+                <div className="hud-bracket hud-bracket-bl" />
+                <div className="flex-1 min-w-0">
+                  <div className="font-mono-hud text-[8px] text-[#22d3ee]">
+                    EFFECT // {currentSlide.transition.toUpperCase()}
                   </div>
-                  <span className="text-[10px] font-mono text-stone-400">Quick Edit All Frames</span>
+                  <h4 className="text-sm font-extrabold text-white truncate mt-0.5">
+                    {currentSlide.description || `FRAME ${(currentIndex + 1).toString().padStart(2, "0")}`}
+                  </h4>
+                  <div className="font-mono-hud text-[9px] text-white/60 mt-1">
+                    DUR {currentSlide.duration}S · FILTER {currentSlide.filter.toUpperCase()}
+                  </div>
                 </div>
+                <div className="text-right">
+                  <div className="text-3xl font-black bg-gradient-to-r from-[#ff3d9a] via-[#8b5cf6] to-[#22d3ee] bg-clip-text text-transparent">
+                    {(currentIndex + 1).toString().padStart(2, "0")}
+                  </div>
+                  <span className="font-mono-hud text-[8px] text-white/40">
+                    OF {slides.length.toString().padStart(2, "0")}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
-                  <div className="bg-stone-950 p-3.5 rounded-2xl border border-stone-800">
-                    <label className="block text-[10px] font-mono uppercase text-stone-400 mb-2">Set All Transitions</label>
-                    <div className="flex flex-wrap gap-1.5">
-                      {["zoom", "zoomOut", "panLeft", "panRight", "tiltUp", "tiltDown", "slideUp", "slideLeft", "slideRight", "blurFade", "retroSpin", "vortex", "glitch", "fadeOnly"].map((style) => (
+        {/* RIGHT: SLIDE INSPECTOR & PROPERTIES PANEL (lg:col-span-4) */}
+        <aside className="lg:col-span-4 hud-glass-card p-4 flex flex-col gap-4">
+          {/* Corner HUD Brackets */}
+          <div className="hud-bracket hud-bracket-tl" />
+          <div className="hud-bracket hud-bracket-tr" />
+          <div className="hud-bracket hud-bracket-bl" />
+          <div className="hud-bracket hud-bracket-br" />
+
+          {/* Inspector Header & Tabs */}
+          <div className="flex items-center justify-between border-b border-[#8b5cf6]/25 pb-3">
+            <div className="flex items-center gap-2">
+              <Sliders className="w-4 h-4 text-[#ff3d9a]" />
+              <h3 className="font-extrabold text-sm tracking-wider text-white">
+                SLIDE INSPECTOR
+              </h3>
+            </div>
+            {currentSlide && (
+              <span className="font-mono-hud text-[9px] px-2 py-0.5 rounded bg-[#ff3d9a]/15 text-[#ff3d9a] border border-[#ff3d9a]/40">
+                #{(currentIndex + 1).toString().padStart(2, "0")}
+              </span>
+            )}
+          </div>
+
+          {currentSlide ? (
+            <>
+              {/* Tab Selector */}
+              <div className="grid grid-cols-3 gap-1 bg-[#120c26] p-1 rounded-xl border border-[#8b5cf6]/30">
+                <button
+                  onClick={() => setActiveTab("style")}
+                  className={`hud-tab text-[9px] ${activeTab === "style" ? "hud-tab-active" : ""}`}
+                >
+                  EFFECTS
+                </button>
+                <button
+                  onClick={() => setActiveTab("motion")}
+                  className={`hud-tab text-[9px] ${activeTab === "motion" ? "hud-tab-active" : ""}`}
+                >
+                  MOTION
+                </button>
+                <button
+                  onClick={() => setActiveTab("captions")}
+                  className={`hud-tab text-[9px] ${activeTab === "captions" ? "hud-tab-active" : ""}`}
+                >
+                  CAPTIONS
+                </button>
+              </div>
+
+              {/* TAB 1: EFFECTS & FILTERS */}
+              {activeTab === "style" && (
+                <div className="space-y-4">
+                  {/* Transition Style Dropdown */}
+                  <div>
+                    <label className="block font-mono-hud text-[9px] text-white/60 mb-1.5">
+                      TRANSITION ANIMATION STYLE
+                    </label>
+                    <select
+                      value={currentSlide.transition}
+                      onChange={e => {
+                        const updated = [...slides];
+                        updated[currentIndex].transition = e.target.value as any;
+                        setSlides(updated);
+                        setPreviewToggle(p => p + 1);
+                      }}
+                      className="hud-input w-full px-3 py-2 text-xs cursor-pointer"
+                    >
+                      <option value="zoom">Zoom In Effect</option>
+                      <option value="zoomOut">Zoom Out Effect</option>
+                      <option value="panLeft">Pan Left Movement</option>
+                      <option value="panRight">Pan Right Movement</option>
+                      <option value="tiltUp">Tilt Up Movement</option>
+                      <option value="tiltDown">Tilt Down Movement</option>
+                      <option value="slideUp">Slide Up Entry</option>
+                      <option value="slideLeft">Slide Left Entry</option>
+                      <option value="slideRight">Slide Right Entry</option>
+                      <option value="blurFade">Cinematic Blur Dissolve</option>
+                      <option value="retroSpin">Retro Spin & Zoom</option>
+                      <option value="vortex">Vortex Spin Dissolve</option>
+                      <option value="glitch">Digital Glitch Jitter</option>
+                      <option value="fadeOnly">Clean Cross-Fade Only</option>
+                    </select>
+                  </div>
+
+                  {/* Fit Mode Toggle */}
+                  <div>
+                    <label className="block font-mono-hud text-[9px] text-white/60 mb-1.5">
+                      FIT MODE (ASPECT CONTROL)
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => {
+                          const updated = [...slides];
+                          updated[currentIndex].fitMode = "cover";
+                          setSlides(updated);
+                        }}
+                        className={`hud-btn py-2 text-[10px] ${
+                          currentSlide.fitMode === "cover"
+                            ? "hud-btn-cyan font-bold"
+                            : "text-white/60"
+                        }`}
+                      >
+                        FILL (COVER)
+                      </button>
+                      <button
+                        onClick={() => {
+                          const updated = [...slides];
+                          updated[currentIndex].fitMode = "contain";
+                          setSlides(updated);
+                        }}
+                        className={`hud-btn py-2 text-[10px] ${
+                          currentSlide.fitMode === "contain"
+                            ? "hud-btn-cyan font-bold"
+                            : "text-white/60"
+                        }`}
+                      >
+                        FIT (CONTAIN)
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Artistic Color Filters Grid */}
+                  <div>
+                    <label className="block font-mono-hud text-[9px] text-white/60 mb-2 flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <Sparkles className="w-3 h-3 text-[#ff3d9a]" />
+                        ARTISTIC COLOR FILTER
+                      </span>
+                      <span className="text-[#22d3ee]">
+                        {currentSlide.filter.toUpperCase()}
+                      </span>
+                    </label>
+                    <div className="grid grid-cols-3 gap-1.5 max-h-48 overflow-y-auto pr-1">
+                      {[
+                        { id: "none", name: "Normal" },
+                        { id: "cyberpunk", name: "Cyberpunk" },
+                        { id: "vibrant", name: "Vibrant" },
+                        { id: "warm", name: "Sunny" },
+                        { id: "dramatic", name: "Dramatic" },
+                        { id: "grayscale", name: "Noir B&W" },
+                        { id: "sepia", name: "Sepia" },
+                        { id: "vintage", name: "Vintage" },
+                        { id: "cool", name: "Nordic" },
+                        { id: "technicolor", name: "Technicolor" },
+                        { id: "monochrome", name: "Monochrome" },
+                        { id: "invert", name: "X-Ray" }
+                      ].map(f => (
                         <button
-                          key={style}
-                          onClick={() => bulkApplyTransitions(style as any)}
-                          className="text-[9px] font-semibold px-2 py-1 bg-stone-900 hover:bg-stone-800 border border-stone-800 hover:border-stone-700 rounded text-stone-300 cursor-pointer transition-colors"
+                          key={f.id}
+                          onClick={() => {
+                            const updated = [...slides];
+                            updated[currentIndex].filter = f.id as any;
+                            setSlides(updated);
+                          }}
+                          className={`hud-btn py-2 px-1 text-[9px] truncate text-center ${
+                            currentSlide.filter === f.id
+                              ? "hud-btn-primary font-bold border-[#ff3d9a]"
+                              : "text-white/70"
+                          }`}
                         >
-                          {style === "zoom" ? "Zoom In" : style === "zoomOut" ? "Zoom Out" : style === "panLeft" ? "Pan L" : style === "panRight" ? "Pan R" : style === "tiltUp" ? "Tilt U" : style === "tiltDown" ? "Tilt D" : style === "slideUp" ? "Slide U" : style === "slideLeft" ? "Slide L" : style === "slideRight" ? "Slide R" : style === "blurFade" ? "Blur Fade" : style === "retroSpin" ? "Retro Spin" : style === "vortex" ? "Vortex" : style === "glitch" ? "Glitch" : "Fade Only"}
+                          {f.name}
                         </button>
                       ))}
                     </div>
-                    <button
-                      onClick={shuffleCheckedTransitions}
-                      className="w-full mt-2 text-[9px] font-bold px-2 py-1.5 bg-gradient-to-r from-purple-500/20 to-pink-500/20 hover:from-purple-500/30 hover:to-pink-500/30 border border-purple-500/30 hover:border-purple-500/50 rounded text-purple-300 cursor-pointer transition-colors flex justify-center items-center gap-1.5"
-                    >
-                      <Sparkles className="w-3 h-3" /> Shuffle Transitions
-                    </button>
                   </div>
+                </div>
+              )}
 
-                  <div className="bg-stone-950 p-3.5 rounded-2xl border border-stone-800">
-                    <label className="block text-[10px] font-mono uppercase text-stone-400 mb-2">Set All Slide Durations</label>
-                    <div className="flex gap-2">
-                      {[2, 3, 4, 5, 8].map((sec) => (
+              {/* TAB 2: MOTION & TRIM */}
+              {activeTab === "motion" && (
+                <div className="space-y-4">
+                  {/* Duration Selector */}
+                  <div>
+                    <label className="block font-mono-hud text-[9px] text-white/60 mb-1.5">
+                      SLIDE DURATION
+                    </label>
+                    <div className="grid grid-cols-5 gap-1">
+                      {[2, 3, 4, 5, 8].map(sec => (
                         <button
                           key={sec}
-                          onClick={() => bulkApplyDurations(sec)}
-                          className="flex-1 text-xs font-bold py-1 bg-stone-900 hover:bg-amber-500 hover:text-stone-950 border border-stone-800 rounded transition-all cursor-pointer"
+                          onClick={() => {
+                            const updated = [...slides];
+                            updated[currentIndex].duration = sec;
+                            setSlides(updated);
+                          }}
+                          className={`hud-btn py-2 text-xs font-bold ${
+                            currentSlide.duration === sec
+                              ? "hud-btn-cyan"
+                              : "text-white/60"
+                          }`}
                         >
                           {sec}s
                         </button>
                       ))}
                     </div>
                   </div>
-                </div>
-              </div>
-            </section>
 
-            {/* RIGHT COLUMN: Slide Timeline & Soundtrack Customizer */}
-            <section className={`${isAssetGalleryOpen ? "lg:col-span-4" : "lg:col-span-5"} space-y-6 transition-all duration-300`}>
-              {/* Soundtrack Customizer Box */}
-              <div className="bg-stone-900 border border-stone-800 rounded-3xl p-6 shadow-2xl space-y-4">
-                <div className="flex items-center gap-2">
-                  <Music className="w-5 h-5 text-amber-500 animate-pulse" />
-                  <h3 className="text-sm font-extrabold text-stone-200">Video Background Audio</h3>
-                </div>
-                <p className="text-xs text-stone-400 leading-relaxed">
-                  Provide background score to the slideshow movie. Select from campus ambient synthesizers or upload your own song!
-                </p>
-
-                <div className="space-y-3 pt-1">
-                  {/* Select Options */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      onClick={() => {
-                        setActiveSoundtrackType("synth");
-                      }}
-                      className={`flex items-center justify-center gap-2 py-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
-                        activeSoundtrackType === "synth"
-                          ? "bg-amber-500/10 border-amber-500/40 text-amber-400"
-                          : "bg-stone-950 border-stone-800 text-stone-400 hover:border-stone-700"
-                      }`}
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      Nostalgia Melody
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        if (uploadedAudioSrc) {
-                          setActiveSoundtrackType("custom");
-                        } else {
-                          audioInputRef.current?.click();
-                        }
-                      }}
-                      className={`flex items-center justify-center gap-2 py-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
-                        activeSoundtrackType === "custom"
-                          ? "bg-amber-500/10 border-amber-500/40 text-amber-400"
-                          : "bg-stone-950 border-stone-800 text-stone-400 hover:border-stone-700"
-                      }`}
-                    >
-                      <Music className="w-3.5 h-3.5" />
-                      {uploadedAudioName ? "My Active Song" : "Select My Song"}
-                    </button>
-                  </div>
-
-                  {/* Song Upload Area */}
-                  <div className="bg-stone-950 rounded-2xl p-4 border border-stone-800 space-y-3">
-                    <div className="flex items-center justify-between text-[10px] font-mono text-stone-400">
-                      <span>SONG SELECTION FOR SLIDESHOW</span>
-                      {uploadedAudioName && (
-                        <button
-                          onClick={() => {
-                            setUploadedAudioSrc("");
-                            setUploadedAudioName("");
-                            setActiveSoundtrackType("synth");
-                          }}
-                          className="text-rose-400 hover:text-rose-300 transition-colors"
-                        >
-                          Clear custom song
-                        </button>
-                      )}
+                  {/* Zoom Multiplier Slider */}
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="font-mono-hud text-[9px] text-white/60">
+                        CUSTOM ZOOM RATIO
+                      </label>
+                      <span className="font-mono-hud text-xs text-[#22d3ee] font-bold">
+                        {currentSlide.zoomMultiplier ? `${currentSlide.zoomMultiplier.toFixed(1)}x` : "1.0x"}
+                      </span>
                     </div>
-
-                    {uploadedAudioName ? (
-                      <div className="flex items-center gap-3 p-3 bg-stone-900 border border-amber-500/20 rounded-xl">
-                        <div className="p-2.5 bg-amber-500/10 text-amber-400 rounded-lg">
-                          <Music className="w-4 h-4 animate-bounce" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold text-stone-200 truncate">{uploadedAudioName}</p>
-                          <p className="text-[9px] font-mono text-amber-500 uppercase tracking-wider">Custom Audio File Configured</p>
-                        </div>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => audioInputRef.current?.click()}
-                        className="w-full flex items-center justify-center gap-2 p-3.5 bg-stone-900 hover:bg-stone-900 border border-dashed border-stone-800 hover:border-stone-700 rounded-xl text-xs text-stone-400 hover:text-stone-200 transition-all cursor-pointer"
-                      >
-                        <Upload className="w-4 h-4" />
-                        Upload Custom MP3 / Audio File
-                      </button>
-                    )}
                     <input
-                      type="file"
-                      ref={audioInputRef}
-                      onChange={handleAudioUploadChange}
-                      accept="audio/*"
-                      className="hidden"
+                      type="range"
+                      min="0.6"
+                      max="2.0"
+                      step="0.1"
+                      value={currentSlide.zoomMultiplier || 1.0}
+                      onChange={e => {
+                        const updated = [...slides];
+                        updated[currentIndex].zoomMultiplier = Number(e.target.value);
+                        setSlides(updated);
+                      }}
+                      className="hud-slider w-full"
                     />
-                    {uploadedAudioSrc && (
-                      <audio ref={audioRef} src={uploadedAudioSrc} loop />
-                    )}
+                    <div className="flex justify-between font-mono-hud text-[8px] text-white/40 mt-1">
+                      <span>0.6x (Wide)</span>
+                      <span>1.0x (Standard)</span>
+                      <span>2.0x (Close-Up)</span>
+                    </div>
                   </div>
 
-                  {/* Auto-Sync Song controls */}
-                  <div className="bg-stone-950 p-4 border border-stone-800 rounded-2xl space-y-3.5">
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <span className="block text-xs font-bold text-stone-200">Auto-Sync Video Length to Song</span>
-                        <p className="text-[10px] text-stone-400">Distributes the soundtrack duration evenly over all slides</p>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={autoSyncToSong}
-                          onChange={(e) => {
-                            setAutoSyncToSong(e.target.checked);
-                            if (e.target.checked && customAudioDuration) {
-                              syncVideoDurationToAudio(customAudioDuration);
-                            }
-                          }}
-                          className="sr-only peer"
-                        />
-                        <div className="w-10 h-5 bg-stone-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-stone-300 after:border-stone-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500 peer-checked:after:bg-stone-950 peer-checked:after:border-stone-950" />
+                  {/* Frame Audio Volume */}
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="font-mono-hud text-[9px] text-white/60">
+                        FRAME AUDIO VOLUME
                       </label>
-                    </div>
-
-                    {customAudioDuration ? (
-                      <div className="space-y-2">
-                        <div className="flex justify-between items-center text-[10px] font-mono bg-stone-900/60 p-2 rounded-lg border border-stone-800/50">
-                          <span className="text-stone-400">Song Duration:</span>
-                          <span className="text-amber-400 font-bold">{Math.round(customAudioDuration)} seconds</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => syncVideoDurationToAudio(customAudioDuration)}
-                          className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-amber-500/10 hover:bg-amber-500 border border-amber-500/30 hover:border-amber-500 text-amber-400 hover:text-stone-950 font-bold rounded-xl text-[10px] transition-all cursor-pointer font-mono"
-                        >
-                          <Clock className="w-3.5 h-3.5" />
-                          SYNC SLIDESHOW TO SONG LENGTH
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="text-[10px] text-stone-500 italic bg-stone-900/40 p-2.5 rounded-lg border border-dashed border-stone-800 text-center">
-                        Upload custom background music above to enable exact audio length matching.
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Slideshow Audio Fading Controls */}
-                  <div className="pt-4 border-t border-stone-800/80 space-y-3">
-                    <div className="flex items-center justify-between text-[10px] font-mono text-stone-400">
-                      <span>SLIDESHOW AUDIO FADING CONTROLS</span>
-                      <span className="text-amber-500 font-bold uppercase text-[9px] tracking-wider">Fade effects</span>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="bg-stone-950 p-3 rounded-xl border border-stone-850 space-y-1.5">
-                        <div className="flex justify-between text-[10px] font-mono">
-                          <span className="text-stone-400">Fade-In (Start):</span>
-                          <span className="text-amber-500 font-bold">{audioFadeInDuration.toFixed(1)}s</span>
-                        </div>
-                        <input
-                          type="range"
-                          min="0"
-                          max="8"
-                          step="0.5"
-                          value={audioFadeInDuration}
-                          onChange={(e) => setAudioFadeInDuration(Number(e.target.value))}
-                          className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-900 rounded-lg appearance-none"
-                          title="Fade-in duration at slideshow start"
-                        />
-                        <div className="flex justify-between text-[8px] font-mono text-stone-600">
-                          <span>0s (Off)</span>
-                          <span>8s</span>
-                        </div>
-                      </div>
-
-                      <div className="bg-stone-950 p-3 rounded-xl border border-stone-850 space-y-1.5">
-                        <div className="flex justify-between text-[10px] font-mono">
-                          <span className="text-stone-400">Fade-Out (End):</span>
-                          <span className="text-amber-500 font-bold">{audioFadeOutDuration.toFixed(1)}s</span>
-                        </div>
-                        <input
-                          type="range"
-                          min="0"
-                          max="8"
-                          step="0.5"
-                          value={audioFadeOutDuration}
-                          onChange={(e) => setAudioFadeOutDuration(Number(e.target.value))}
-                          className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-900 rounded-lg appearance-none"
-                          title="Fade-out duration at slideshow end"
-                        />
-                        <div className="flex justify-between text-[8px] font-mono text-stone-600">
-                          <span>0s (Off)</span>
-                          <span>8s</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Master Audio Volume */}
-                  {activeSoundtrackType === "custom" && (
-                    <div className="pt-4 border-t border-stone-800/80 space-y-2">
-                       <div className="flex items-center justify-between text-[10px] font-mono text-stone-400">
-                        <span>BACKGROUND MUSIC VOLUME</span>
-                        <span className="text-amber-500 font-bold uppercase text-[9px] tracking-wider">{uploadedAudioVolume}%</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        step="1"
-                        value={uploadedAudioVolume}
-                        onChange={(e) => setUploadedAudioVolume(Number(e.target.value))}
-                        className="w-full accent-amber-500 cursor-pointer h-1.5 bg-stone-900 rounded-lg appearance-none"
-                      />
-                    </div>
-                  )}
-
-                </div>
-              </div>
-
-              {/* Secondary Audio Layer (Voice Over) */}
-              <div className="bg-stone-900 border border-stone-800 rounded-3xl p-6 shadow-2xl space-y-4">
-                <div className="flex items-center gap-2">
-                  <Mic className="w-5 h-5 text-emerald-500" />
-                  <h3 className="text-sm font-extrabold text-stone-200">Voice-Over Track</h3>
-                </div>
-                <p className="text-[10px] text-stone-400 leading-relaxed uppercase font-mono">
-                  Add a secondary narration or voice track layer over the background music.
-                </p>
-
-                <div className="bg-stone-950 rounded-2xl p-4 border border-stone-800 space-y-3">
-                  <div className="flex items-center justify-between text-[10px] font-mono text-stone-400">
-                    <span>VOICE FILE SELECTION</span>
-                    {voName && (
-                      <button
-                        onClick={() => {
-                          setVoSrc("");
-                          setVoName("");
-                        }}
-                        className="text-rose-400 hover:text-rose-300 transition-colors"
-                      >
-                        Clear VO Track
-                      </button>
-                    )}
-                  </div>
-
-                  {voName ? (
-                    <div className="flex items-center gap-3 p-3 bg-stone-900 border border-emerald-500/20 rounded-xl">
-                      <div className="p-2.5 bg-emerald-500/10 text-emerald-400 rounded-lg">
-                        <Mic className="w-4 h-4" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-bold text-stone-200 truncate">{voName}</p>
-                        <p className="text-[9px] font-mono text-emerald-500 uppercase tracking-wider">Voice-Over Active</p>
-                      </div>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => voInputRef.current?.click()}
-                      className="w-full flex items-center justify-center gap-2 p-3.5 bg-stone-900 hover:bg-stone-800 border border-dashed border-stone-800 hover:border-stone-700 rounded-xl text-xs text-stone-400 hover:text-stone-200 transition-all cursor-pointer"
-                    >
-                      <Upload className="w-4 h-4" />
-                      Upload Narration File
-                    </button>
-                  )}
-                  <input
-                    type="file"
-                    ref={voInputRef}
-                    onChange={handleVoUploadChange}
-                    accept="audio/*"
-                    className="hidden"
-                  />
-                  {voSrc && (
-                    <audio ref={voRef} src={voSrc} />
-                  )}
-
-                  {voSrc && (
-                     <div className="pt-4 border-t border-stone-800/80 space-y-2">
-                       <div className="flex items-center justify-between text-[10px] font-mono text-stone-400">
-                        <span>VOICE-OVER VOLUME</span>
-                        <span className="text-emerald-500 font-bold uppercase text-[9px] tracking-wider">{voVolume}%</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        step="1"
-                        value={voVolume}
-                        onChange={(e) => setVoVolume(Number(e.target.value))}
-                        className="w-full accent-emerald-500 cursor-pointer h-1.5 bg-stone-900 rounded-lg appearance-none"
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Selected Slide Fine-Tuning Inspector Panel (Aspect Ratio, Fit Mode, Scale) */}
-              {slides[currentIndex] && (
-                <div className="bg-stone-900 border border-stone-800 rounded-3xl p-6 shadow-2xl space-y-4">
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-stone-800 pb-3 mb-1">
-                    <div className="flex items-center gap-2">
-                      <Sliders className="w-4 h-4 text-amber-500 animate-pulse" />
-                      <div className="flex items-center gap-1.5 border border-stone-800 bg-stone-950 rounded-lg p-0.5">
-                        <button
-                          type="button"
-                          onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
-                          className="px-2 py-1 text-stone-400 hover:text-amber-500 hover:bg-stone-900 rounded cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                          disabled={currentIndex === 0}
-                        >
-                          &lt;
-                        </button>
-                        <select
-                          value={currentIndex}
-                          onChange={e => setCurrentIndex(Number(e.target.value))}
-                          className="bg-transparent text-xs font-mono font-bold tracking-wider uppercase text-stone-200 outline-none cursor-pointer appearance-none text-center px-1"
-                        >
-                          {slides.map((s, i) => (
-                            <option key={s.id} value={i} className="bg-stone-900">
-                              Frame #{i + 1}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() => setCurrentIndex(Math.min(slides.length - 1, currentIndex + 1))}
-                          className="px-2 py-1 text-stone-400 hover:text-amber-500 hover:bg-stone-900 rounded cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                          disabled={currentIndex === slides.length - 1}
-                        >
-                          &gt;
-                        </button>
-                      </div>
-                      <span className="text-[10px] font-mono text-stone-500 truncate max-w-[120px] hidden sm:inline-block ml-1">
-                        ({slides[currentIndex].name})
+                      <span className="font-mono-hud text-xs text-[#ff3d9a] font-bold">
+                        {currentSlide.volume !== undefined ? currentSlide.volume : 100}%
                       </span>
                     </div>
-
-                    {/* Frame Selection and Check All Options */}
-                    <div className="flex items-center gap-3 self-end md:self-auto">
-                      <label className="flex items-center gap-1.5 cursor-pointer text-[10px] font-mono text-stone-300 hover:text-amber-400 transition-colors select-none">
-                        <input
-                          type="checkbox"
-                          checked={checkedSlideIds.has(slides[currentIndex].id)}
-                          onChange={() => toggleSlideCheck(slides[currentIndex].id)}
-                          className="rounded border-stone-700 bg-stone-950 text-amber-500 focus:ring-amber-500/30 w-3.5 h-3.5 accent-amber-500 cursor-pointer"
-                        />
-                        <span>Check Active Frame</span>
-                      </label>
-
-                      <div className="h-3 w-[1px] bg-stone-800" />
-
-                      <button
-                        type="button"
-                        onClick={checkedSlideIds.size === slides.length ? uncheckAllSlides : checkAllSlides}
-                        className="text-[10px] font-mono font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1 cursor-pointer bg-stone-950 px-2.5 py-1 rounded-lg border border-stone-800 hover:border-stone-700 transition-all shadow-sm"
-                      >
-                        <CheckSquare className="w-3.5 h-3.5" />
-                        <span>{checkedSlideIds.size === slides.length ? "Clear Checks" : "Check All Frames"}</span>
-                      </button>
-                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="5"
+                      value={currentSlide.volume !== undefined ? currentSlide.volume : 100}
+                      onChange={e => {
+                        const updated = [...slides];
+                        updated[currentIndex].volume = Number(e.target.value);
+                        setSlides(updated);
+                      }}
+                      className="hud-slider w-full"
+                    />
                   </div>
 
-                  {/* Inspector Tabs */}
-                  <div className="flex flex-wrap bg-stone-950 p-1.5 rounded-xl border border-stone-800 gap-1.5 w-full">
-                    {[
-                      { id: "media", label: "Media & Basic" },
-                      { id: "text", label: "Text & Subtitles" },
-                      { id: "vfx", label: "Animation & VFX" }
-                    ].map(tab => (
-                      <button
-                        key={tab.id}
-                        onClick={() => setInspectorTab(tab.id as any)}
-                        className={`px-4 py-2 text-xs font-mono rounded-lg transition-all flex-1 whitespace-nowrap cursor-pointer ${
-                          inspectorTab === tab.id
-                            ? "bg-amber-500/10 text-amber-500 font-bold border border-amber-500/20"
-                            : "text-stone-400 hover:text-stone-200 hover:bg-stone-900 border border-transparent"
-                        }`}
-                      >
-                        {tab.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Bulk/Batch Actions Floating Control Banner */}
-                  {checkedSlideIds.size > 0 && (
-                    <motion.div 
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      className="bg-stone-950/90 border border-amber-500/20 rounded-2xl p-3.5 space-y-2.5 shadow-inner"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Check className="w-4 h-4 text-amber-500" />
-                          <span className="text-[10px] font-bold text-amber-400 font-mono uppercase tracking-wider">
-                            Batch Action Hub ({checkedSlideIds.size} checked frames)
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={uncheckAllSlides}
-                          className="text-[8px] font-mono uppercase text-stone-500 hover:text-stone-300 underline cursor-pointer"
-                        >
-                          Reset Checkbox List
-                        </button>
-                      </div>
-
-                      <p className="text-[10px] text-stone-400 leading-normal font-medium">
-                        Apply specific properties of the active <strong>Scene #{currentIndex + 1}</strong> (like its duration, zoom, filter, or transitions) to all checked frames instantly:
-                      </p>
-
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => applySettingsToChecked(["transition"])}
-                          className="py-1.5 px-2 bg-stone-900 border border-stone-800 hover:border-amber-500/30 text-stone-300 hover:text-amber-400 rounded-lg text-[9px] font-bold font-mono transition-all cursor-pointer text-center"
-                          title="Apply current transition style to all checked frames"
-                        >
-                          Apply Transition ({slides[currentIndex].transition || "zoom"})
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => applySettingsToChecked(["duration"])}
-                          className="py-1.5 px-2 bg-stone-900 border border-stone-800 hover:border-amber-500/30 text-stone-300 hover:text-amber-400 rounded-lg text-[9px] font-bold font-mono transition-all cursor-pointer text-center"
-                          title="Apply current duration to all checked frames"
-                        >
-                          Apply Duration ({slides[currentIndex].duration}s)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => applySettingsToChecked(["filter"])}
-                          className="py-1.5 px-2 bg-stone-900 border border-stone-800 hover:border-amber-500/30 text-stone-300 hover:text-amber-400 rounded-lg text-[9px] font-bold font-mono transition-all cursor-pointer text-center"
-                          title="Apply current color filter to all checked frames"
-                        >
-                          Apply Filter ({slides[currentIndex].filter || "none"})
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => applySettingsToChecked(["fitMode", "zoomMultiplier"])}
-                          className="py-1.5 px-2 bg-stone-900 border border-stone-800 hover:border-amber-500/30 text-stone-300 hover:text-amber-400 rounded-lg text-[9px] font-bold font-mono transition-all cursor-pointer text-center"
-                          title="Apply current aspect fit mode and zoom ratio to all checked frames"
-                        >
-                          Apply Fit Mode & Zoom
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => applySettingsToChecked(["volume"])}
-                          className="py-1.5 px-2 bg-stone-900 border border-stone-800 hover:border-amber-500/30 text-stone-300 hover:text-amber-400 rounded-lg text-[9px] font-bold font-mono transition-all cursor-pointer text-center"
-                          title="Apply current frame audio volume to all checked frames"
-                        >
-                          Apply Frame Volume
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => applySettingsToChecked([
-                            "motionAngle", "motionSpeed", "anchorX", "anchorY", "maskType", "maskRadius", "maskFeather", "cameraRoll", "parallaxEnabled", "parallaxStrength", "vfxType", "vfxIntensity"
-                          ])}
-                          className="py-1.5 px-2 bg-stone-900 border border-stone-800 hover:border-amber-500/30 text-stone-300 hover:text-amber-400 rounded-lg text-[9px] font-bold font-mono transition-all cursor-pointer text-center"
-                          title="Apply current advanced camera motion & VFX effects to all checked frames"
-                        >
-                          Apply Camera & VFX
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => applySettingsToChecked([
-                            "transition", "duration", "filter", "fitMode", "zoomMultiplier", "volume", "motionAngle", "motionSpeed", "anchorX", "anchorY", "maskType", "maskRadius", "maskFeather", "cameraRoll", "parallaxEnabled", "parallaxStrength", "vfxType", "vfxIntensity"
-                          ])}
-                          className="py-1.5 px-2 bg-amber-500/10 border border-amber-500/20 hover:border-amber-500/50 text-amber-400 hover:text-white rounded-lg text-[9px] font-extrabold font-mono transition-all cursor-pointer text-center"
-                          title="Apply ALL settings of this frame to all checked frames"
-                        >
-                          Apply All Settings
-                        </button>
-                        <button
-                          type="button"
-                          onClick={deleteCheckedSlides}
-                          className="py-1.5 px-2 bg-rose-500/10 border border-rose-500/20 hover:border-rose-500 hover:text-white text-rose-400 rounded-lg text-[9px] font-bold font-mono transition-all cursor-pointer text-center"
-                          title="Delete all checked frames from timeline"
-                        >
-                          Delete Checked ({checkedSlideIds.size})
-                        </button>
-                      </div>
-                    </motion.div>
-                  )}
-
-                  {inspectorTab === "media" && (
-                    <>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        {renderInspectorPreview()}
-
-                    {/* Quick controls */}
-                    <div className="space-y-3">
-                      <div>
-                        <label className="block text-[10px] font-mono uppercase text-stone-400 mb-1">
-                          Fit Mode (Aspect Control)
-                        </label>
-                        <div className="grid grid-cols-2 gap-1.5">
-                          <button
-                            onClick={() => {
-                              const updated = [...slides];
-                              updated[currentIndex].fitMode = "cover";
-                              setSlides(updated);
-                            }}
-                            className={`py-1.5 rounded-lg text-center text-[9px] font-bold border transition-all cursor-pointer ${
-                              (slides[currentIndex].fitMode || "cover") === "cover"
-                                ? "bg-amber-500/10 border-amber-500/40 text-amber-400 font-extrabold"
-                                : "bg-stone-950 border-stone-800/80 text-stone-400 hover:text-stone-300"
-                            }`}
-                          >
-                            Fill Frame (Cover)
-                          </button>
-                          <button
-                            onClick={() => {
-                              const updated = [...slides];
-                              updated[currentIndex].fitMode = "contain";
-                              setSlides(updated);
-                            }}
-                            className={`py-1.5 rounded-lg text-center text-[9px] font-bold border transition-all cursor-pointer ${
-                              slides[currentIndex].fitMode === "contain"
-                                ? "bg-amber-500/10 border-amber-500/40 text-amber-400 font-extrabold"
-                                : "bg-stone-950 border-stone-800/80 text-stone-400 hover:text-stone-300"
-                            }`}
-                          >
-                            Fit Frame (Contain)
-                          </button>
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between items-center mb-1">
-                          <label className="text-[10px] font-mono uppercase text-stone-400">
-                            Custom Zoom Ratio
-                          </label>
-                          <span className="text-[10px] font-mono font-bold text-amber-500">
-                            {slides[currentIndex].zoomMultiplier ? `${slides[currentIndex].zoomMultiplier.toFixed(1)}x` : "1.0x"}
-                          </span>
-                        </div>
-                        <input
-                          type="range"
-                          min="0.6"
-                          max="2.0"
-                          step="0.1"
-                          value={slides[currentIndex].zoomMultiplier || 1.0}
-                          onChange={(e) => {
-                            const updated = [...slides];
-                            updated[currentIndex].zoomMultiplier = Number(e.target.value);
-                            setSlides(updated);
-                          }}
-                          className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-950 rounded-lg appearance-none"
-                        />
-                        <div className="flex justify-between text-[8px] font-mono text-stone-500 mt-1">
-                          <span>0.6x (Zoom Out)</span>
-                          <span>1.0x (Original)</span>
-                          <span>2.0x (Zoom In)</span>
-                        </div>
-                      </div>
-
-                      {slides[currentIndex].mediaType === "video" && (
-                        <div className="bg-stone-950 p-3 rounded-xl border border-stone-800 space-y-2">
-                          <label className="text-[10px] font-mono uppercase text-amber-500 font-bold block mb-1">
-                            Asset Trimmer
-                          </label>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <span className="text-[9px] text-stone-400 block mb-1">Trim Start (s)</span>
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.5"
-                                value={slides[currentIndex].trimStart || 0}
-                                onChange={(e) => {
-                                  const updated = [...slides];
-                                  updated[currentIndex].trimStart = Number(e.target.value);
-                                  setSlides(updated);
-                                }}
-                                className="w-full bg-stone-900 border border-stone-800 rounded-lg p-1.5 text-xs text-stone-200 outline-none focus:border-amber-500"
-                              />
-                            </div>
-                            <div>
-                              <span className="text-[9px] text-stone-400 block mb-1">Trim End (s)</span>
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.5"
-                                value={slides[currentIndex].trimEnd || slides[currentIndex].duration}
-                                onChange={(e) => {
-                                  const updated = [...slides];
-                                  updated[currentIndex].trimEnd = Number(e.target.value);
-                                  setSlides(updated);
-                                }}
-                                className="w-full bg-stone-900 border border-stone-800 rounded-lg p-1.5 text-xs text-stone-200 outline-none focus:border-amber-500"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      <div>
-                        <div className="flex justify-between items-center mb-1">
-                          <label className="text-[10px] font-mono uppercase text-stone-400">
-                            Frame Audio Volume
-                          </label>
-                          <span className="text-[10px] font-mono font-bold text-amber-500 font-mono">
-                            {slides[currentIndex].volume !== undefined ? slides[currentIndex].volume : 100}%
-                          </span>
-                        </div>
-                        <input
-                          type="range"
-                          min="0"
-                          max="100"
-                          step="5"
-                          value={slides[currentIndex].volume !== undefined ? slides[currentIndex].volume : 100}
-                          onChange={(e) => {
-                            const updated = [...slides];
-                            updated[currentIndex].volume = Number(e.target.value);
-                            setSlides(updated);
-                          }}
-                          className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-950 rounded-lg appearance-none"
-                        />
-                        <div className="flex justify-between text-[8px] font-mono text-stone-500 mt-1">
-                          <span>0% (Mute)</span>
-                          <span>50%</span>
-                          <span>100% (Full)</span>
-                        </div>
-                      </div>
-                      
-                      {/* Video Cropping (KineMaster Style) */}
-                      <div className="pt-2 border-t border-stone-800/50 mt-2">
-                        <label className="text-[10px] font-mono uppercase text-stone-400 mb-2 flex items-center justify-between">
-                          <span>✂️ Visual Cropping Mask</span>
-                        </label>
-                        <p className="text-[9px] text-stone-500 mb-3 leading-snug">Crop edges to reframe media. Leave at 0% for no crop.</p>
-                        
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                          <div>
-                            <div className="flex justify-between text-[9px] text-stone-400 mb-1">
-                              <span>Left</span>
-                              <span className="text-amber-500">{slides[currentIndex].cropLeft || 0}%</span>
-                            </div>
-                            <input
-                              type="range" min="0" max="50" step="1"
-                              value={slides[currentIndex].cropLeft || 0}
-                              onChange={(e) => {
-                                const updated = [...slides];
-                                updated[currentIndex].cropLeft = Number(e.target.value);
-                                setSlides(updated);
-                              }}
-                              className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-950 rounded-lg appearance-none"
-                            />
-                          </div>
-                          <div>
-                            <div className="flex justify-between text-[9px] text-stone-400 mb-1">
-                              <span>Right</span>
-                              <span className="text-amber-500">{slides[currentIndex].cropRight || 0}%</span>
-                            </div>
-                            <input
-                              type="range" min="0" max="50" step="1"
-                              value={slides[currentIndex].cropRight || 0}
-                              onChange={(e) => {
-                                const updated = [...slides];
-                                updated[currentIndex].cropRight = Number(e.target.value);
-                                setSlides(updated);
-                              }}
-                              className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-950 rounded-lg appearance-none"
-                            />
-                          </div>
-                          <div>
-                            <div className="flex justify-between text-[9px] text-stone-400 mb-1">
-                              <span>Top</span>
-                              <span className="text-amber-500">{slides[currentIndex].cropTop || 0}%</span>
-                            </div>
-                            <input
-                              type="range" min="0" max="50" step="1"
-                              value={slides[currentIndex].cropTop || 0}
-                              onChange={(e) => {
-                                const updated = [...slides];
-                                updated[currentIndex].cropTop = Number(e.target.value);
-                                setSlides(updated);
-                              }}
-                              className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-950 rounded-lg appearance-none"
-                            />
-                          </div>
-                          <div>
-                            <div className="flex justify-between text-[9px] text-stone-400 mb-1">
-                              <span>Bottom</span>
-                              <span className="text-amber-500">{slides[currentIndex].cropBottom || 0}%</span>
-                            </div>
-                            <input
-                              type="range" min="0" max="50" step="1"
-                              value={slides[currentIndex].cropBottom || 0}
-                              onChange={(e) => {
-                                const updated = [...slides];
-                                updated[currentIndex].cropBottom = Number(e.target.value);
-                                setSlides(updated);
-                              }}
-                              className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-950 rounded-lg appearance-none"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Subtitle caption input & settings */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-                    <div>
-                      <label className="block text-[10px] font-mono uppercase text-stone-400 mb-1.5">
-                        Transition Animation Style
-                      </label>
-                      <select
-                        value={slides[currentIndex].transition}
-                        onChange={(e) => {
-                          const updated = [...slides];
-                          updated[currentIndex].transition = e.target.value as any;
-                          setSlides(updated);
-                        }}
-                        className="w-full bg-stone-950 border border-stone-800 rounded-xl px-3 py-2 text-xs text-stone-200 focus:border-amber-500/50 focus:outline-none cursor-pointer"
-                      >
-                        <option value="zoom">Zoom In Effect</option>
-                        <option value="zoomOut">Zoom Out Effect</option>
-                        <option value="panLeft">Pan Left Movement</option>
-                        <option value="panRight">Pan Right Movement</option>
-                        <option value="tiltUp">Tilt Up Movement</option>
-                        <option value="tiltDown">Tilt Down Movement</option>
-                        <option value="slideUp">Slide Up Entry</option>
-                        <option value="slideLeft">Slide Left Entry</option>
-                        <option value="slideRight">Slide Right Entry</option>
-                        <option value="blurFade">Cinematic Blur Dissolve</option>
-                        <option value="retroSpin">Retro Spin & Zoom</option>
-                        <option value="vortex">Vortex Spin Dissolve</option>
-                        <option value="glitch">Digital Glitch Jitter</option>
-                        <option value="fadeOnly">Clean Cross-Fade Only</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-mono uppercase text-stone-400 mb-1.5">
-                        Duration in Seconds
-                      </label>
-                      <div className="flex gap-1 bg-stone-950 p-0.5 rounded-xl border border-stone-800">
-                        {[2, 3, 4, 5, 8].map((sec) => (
-                          <button
-                            key={sec}
-                            onClick={() => {
-                              const updated = [...slides];
-                              updated[currentIndex].duration = sec;
-                              setSlides(updated);
-                            }}
-                            className={`flex-1 py-1.5 rounded-lg text-center text-xs font-mono font-bold transition-all cursor-pointer ${
-                              slides[currentIndex].duration === sec
-                                ? "bg-amber-500 text-stone-950"
-                                : "text-stone-400 hover:text-stone-200"
-                            }`}
-                          >
-                            {sec}s
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Artistic Color Filter */}
-                  <div className="border-t border-stone-800/60 pt-4 space-y-2">
-                    <label className="block text-[10px] font-mono uppercase text-stone-400 font-bold flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                      Artistic Color Filter
-                    </label>
-                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      {[
-                        { id: "none", name: "Normal", desc: "No Filter" },
-                        { id: "grayscale", name: "Grayscale", desc: "Classic Noir" },
-                        { id: "sepia", name: "Sepia", desc: "Retro Warm" },
-                        { id: "vibrant", name: "Vibrant", desc: "Rich Saturate" },
-                        { id: "vintage", name: "Vintage", desc: "Analog Film" },
-                        { id: "invert", name: "X-Ray", desc: "Invert Art" },
-                        { id: "warm", name: "Sunny", desc: "Golden Hour" },
-                        { id: "cool", name: "Nordic", desc: "Glacier Cool" },
-                        { id: "dramatic", name: "Dramatic", desc: "Cinematic Low-Sat" },
-                        { id: "cyberpunk", name: "Cyberpunk", desc: "Neon Pink/Blue" },
-                        { id: "technicolor", name: "Technicolor", desc: "Retro Hollywood" },
-                        { id: "monochrome", name: "Monochrome", desc: "High Contrast B&W" },
-                        { id: "dream", name: "Dream Soft", desc: "Dreamy Glow" }
-                      ].map((filt) => (
-                        <button
-                          key={filt.id}
-                          onClick={() => {
-                            const updated = [...slides];
-                            updated[currentIndex].filter = filt.id as any;
-                            setSlides(updated);
-                          }}
-                          className={`flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer ${
-                            (slides[currentIndex].filter || "none") === filt.id
-                              ? "bg-amber-500/10 border-amber-500/40 text-amber-400 font-extrabold"
-                              : "bg-stone-950 border-stone-800/80 text-stone-400 hover:text-stone-300 hover:border-stone-700"
-                          }`}
-                        >
-                          <span className="text-[10px] font-bold tracking-tight">{filt.name}</span>
-                          <span className="text-[8px] opacity-70 font-mono mt-0.5">{filt.desc}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Manual Color Grading */}
-                  <div className="border-t border-stone-800/60 pt-4 space-y-4">
-                    <label className="block text-[10px] font-mono uppercase text-stone-400 font-bold flex items-center gap-1.5">
-                      <Sliders className="w-3.5 h-3.5 text-amber-500" />
-                      Color Grading
-                    </label>
-                    <div className="grid grid-cols-2 gap-4">
-                      {/* Brightness */}
-                      <div>
-                        <div className="flex justify-between items-center mb-1">
-                          <label className="text-[9px] text-stone-400 font-mono">Brightness</label>
-                          <span className="text-[9px] font-mono text-amber-500">{slides[currentIndex].brightness ?? 100}%</span>
-                        </div>
-                        <input
-                          type="range" min="0" max="200"
-                          value={slides[currentIndex].brightness ?? 100}
-                          onChange={(e) => {
-                            const updated = [...slides];
-                            updated[currentIndex].brightness = Number(e.target.value);
-                            setSlides(updated);
-                          }}
-                          className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-900 rounded-lg appearance-none"
-                        />
-                      </div>
-                      {/* Contrast */}
-                      <div>
-                        <div className="flex justify-between items-center mb-1">
-                          <label className="text-[9px] text-stone-400 font-mono">Contrast</label>
-                          <span className="text-[9px] font-mono text-amber-500">{slides[currentIndex].contrast ?? 100}%</span>
-                        </div>
-                        <input
-                          type="range" min="0" max="200"
-                          value={slides[currentIndex].contrast ?? 100}
-                          onChange={(e) => {
-                            const updated = [...slides];
-                            updated[currentIndex].contrast = Number(e.target.value);
-                            setSlides(updated);
-                          }}
-                          className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-900 rounded-lg appearance-none"
-                        />
-                      </div>
-                      {/* Saturation */}
-                      <div>
-                        <div className="flex justify-between items-center mb-1">
-                          <label className="text-[9px] text-stone-400 font-mono">Saturation</label>
-                          <span className="text-[9px] font-mono text-amber-500">{slides[currentIndex].saturation ?? 100}%</span>
-                        </div>
-                        <input
-                          type="range" min="0" max="200"
-                          value={slides[currentIndex].saturation ?? 100}
-                          onChange={(e) => {
-                            const updated = [...slides];
-                            updated[currentIndex].saturation = Number(e.target.value);
-                            setSlides(updated);
-                          }}
-                          className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-900 rounded-lg appearance-none"
-                        />
-                      </div>
-                      {/* Hue Rotate */}
-                      <div>
-                        <div className="flex justify-between items-center mb-1">
-                          <label className="text-[9px] text-stone-400 font-mono">Hue Rotate</label>
-                          <span className="text-[9px] font-mono text-amber-500">{slides[currentIndex].hueRotate ?? 0}°</span>
-                        </div>
-                        <input
-                          type="range" min="0" max="360"
-                          value={slides[currentIndex].hueRotate ?? 0}
-                          onChange={(e) => {
-                            const updated = [...slides];
-                            updated[currentIndex].hueRotate = Number(e.target.value);
-                            setSlides(updated);
-                          }}
-                          className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-900 rounded-lg appearance-none"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  </>
-                  )}
-
-                  {inspectorTab === "text" && (
-                  <>
-                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {renderInspectorPreview()}
-                    <div className="space-y-4">
-                     <div className="space-y-2 border-t border-stone-800/60 pt-4">
-                      <div className="flex items-center justify-between">
-                      <label className="text-[10px] font-mono uppercase text-stone-400 font-bold flex items-center gap-1.5">
-                        <FontIcon className="w-3.5 h-3.5 text-amber-500" />
-                        Subtitle Overlay & Caption
-                      </label>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const updated = [...slides];
-                            updated[currentIndex].showSubtitle = !(updated[currentIndex].showSubtitle !== false);
-                            setSlides(updated);
-                          }}
-                          className={`text-[9px] font-mono font-bold px-2 py-1 rounded-lg border transition-colors cursor-pointer ${
-                            slides[currentIndex].showSubtitle !== false
-                              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-                              : "bg-rose-500/10 border-rose-500/30 text-rose-400"
-                          }`}
-                        >
-                          {slides[currentIndex].showSubtitle !== false ? "● Subtitle Enabled" : "○ Subtitle Disabled"}
-                        </button>
-                      </div>
-                    </div>
-                    
-                    {/* Caption input and quick action buttons */}
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={slides[currentIndex].caption || ""}
-                        onChange={(e) => {
-                          const updated = [...slides];
-                          updated[currentIndex].caption = e.target.value;
-                          if (e.target.value && updated[currentIndex].showSubtitle === false) {
-                            updated[currentIndex].showSubtitle = true; // Auto-enable if user starts writing
-                          }
-                          setSlides(updated);
-                        }}
-                        className="flex-1 bg-stone-950 border border-stone-800 rounded-xl px-3.5 py-2 text-xs text-stone-200 focus:border-amber-500/50 focus:outline-none"
-                        placeholder="Write subtitle caption displayed on video..."
-                      />
-                      
-                      {slides[currentIndex].caption ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const updated = [...slides];
-                            updated[currentIndex].caption = "";
-                            updated[currentIndex].showSubtitle = false;
-                            setSlides(updated);
-                          }}
-                          className="px-3 py-2 bg-stone-950 border border-stone-800 hover:border-rose-500/50 hover:text-rose-400 text-stone-400 rounded-xl text-xs font-mono transition-colors cursor-pointer"
-                          title="Remove Subtitle"
-                        >
-                          Clear
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const updated = [...slides];
-                            updated[currentIndex].caption = "A beautiful cinematic scene";
-                            updated[currentIndex].showSubtitle = true;
-                            setSlides(updated);
-                          }}
-                          className="px-3 py-2 bg-amber-500/10 border border-amber-500/30 hover:border-amber-500/60 text-amber-400 rounded-xl text-xs font-mono transition-colors cursor-pointer"
-                          title="Add Subtitle template"
-                        >
-                          Add Preset
-                        </button>
-                      )}
-                    </div>
-                    
-                    {/* Advanced Text Typography & Style Options */}
-                    {slides[currentIndex].caption && slides[currentIndex].showSubtitle !== false && (
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-stone-950 p-3 rounded-xl border border-stone-800/60 mt-3">
-                        <div className="space-y-1.5">
-                          <label className="text-[9px] font-mono text-stone-500 uppercase">Font</label>
-                          <select
-                            value={slides[currentIndex].captionFont || "Inter"}
-                            onChange={e => {
-                              const updated = [...slides];
-                              updated[currentIndex].captionFont = e.target.value as any;
-                              setSlides(updated);
-                            }}
-                            className="w-full bg-stone-900 border border-stone-800 rounded px-2 py-1 text-[10px] text-stone-300 focus:border-amber-500/50 focus:outline-none cursor-pointer"
-                          >
-                            <option value="Inter">Inter (Sans)</option>
-                            <option value="Playfair Display">Playfair (Serif)</option>
-                            <option value="JetBrains Mono">JetBrains (Mono)</option>
-                            <option value="Space Grotesk">Space Grotesk</option>
-                            <option value="Comic Sans MS">Comic Sans</option>
-                          </select>
-                        </div>
-                        <div className="space-y-1.5">
-                          <label className="text-[9px] font-mono text-stone-500 uppercase">Color</label>
-                          <div className="flex gap-1.5 h-[22px]">
-                            <input
-                              type="color"
-                              value={slides[currentIndex].captionColor || "#ffffff"}
-                              onChange={e => {
-                                const updated = [...slides];
-                                updated[currentIndex].captionColor = e.target.value;
-                                setSlides(updated);
-                              }}
-                              className="w-8 h-full rounded bg-stone-900 border border-stone-800 cursor-pointer p-0"
-                            />
-                            <input
-                              type="text"
-                              value={slides[currentIndex].captionColor || "#ffffff"}
-                              onChange={e => {
-                                const updated = [...slides];
-                                updated[currentIndex].captionColor = e.target.value;
-                                setSlides(updated);
-                              }}
-                              className="flex-1 w-full bg-stone-900 border border-stone-800 rounded px-2 text-[10px] text-stone-300 focus:border-amber-500/50 focus:outline-none font-mono"
-                            />
-                          </div>
-                        </div>
-                        <div className="space-y-1.5">
-                          <label className="text-[9px] font-mono text-stone-500 uppercase">Size</label>
-                          <select
-                            value={slides[currentIndex].captionSize || "medium"}
-                            onChange={e => {
-                              const updated = [...slides];
-                              updated[currentIndex].captionSize = e.target.value as any;
-                              setSlides(updated);
-                            }}
-                            className="w-full bg-stone-900 border border-stone-800 rounded px-2 py-1 text-[10px] text-stone-300 focus:border-amber-500/50 focus:outline-none cursor-pointer"
-                          >
-                            <option value="small">Small</option>
-                            <option value="medium">Medium</option>
-                            <option value="large">Large</option>
-                            <option value="xlarge">Extra Large</option>
-                          </select>
-                        </div>
-                        <div className="col-span-2 sm:col-span-4 space-y-1.5 pt-2">
-                          <label className="text-[9px] font-mono text-stone-500 uppercase block mb-1">Text Animation Gallery</label>
-                          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                            {[
-                              { id: "fade", label: "Fade" },
-                              { id: "slideUp", label: "Slide Up" },
-                              { id: "typewriter", label: "Type" },
-                              { id: "scale", label: "Scale" },
-                              { id: "bounce", label: "Bounce" },
-                              { id: "none", label: "Static" },
-                            ].map((anim) => {
-                              const isSelected = (slides[currentIndex].captionAnimation || "fade") === anim.id;
-                              return (
-                                <button
-                                  key={anim.id}
-                                  type="button"
-                                  onClick={() => {
-                                    const updated = [...slides];
-                                    updated[currentIndex].captionAnimation = anim.id as any;
-                                    setSlides(updated);
-                                  }}
-                                  className={`relative h-12 flex flex-col items-center justify-center border rounded-lg overflow-hidden transition-all ${
-                                    isSelected
-                                      ? "border-amber-500 bg-amber-500/10 text-amber-500"
-                                      : "border-stone-800 bg-stone-900 hover:bg-stone-800 text-stone-400"
-                                  }`}
-                                >
-                                  <span className="text-[9px] font-mono z-10">{anim.label}</span>
-                                  <div className="absolute inset-0 flex items-center justify-center opacity-30 pointer-events-none">
-                                    <motion.span
-                                      animate={
-                                        anim.id === "fade" ? { opacity: [0.1, 1, 0.1] } :
-                                        anim.id === "slideUp" ? { opacity: [0.1, 1, 0.1], y: [10, 0, -10] } :
-                                        anim.id === "scale" ? { opacity: [0.1, 1, 0.1], scale: [0.5, 1.2, 0.5] } :
-                                        anim.id === "bounce" ? { opacity: [0.1, 1, 0.1], y: [0, -8, 0] } :
-                                        anim.id === "typewriter" ? { clipPath: ["inset(0 100% 0 0)", "inset(0 0% 0 0)", "inset(0 0% 0 0)"] } :
-                                        {}
-                                      }
-                                      transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                                      className="text-[10px] font-bold tracking-widest uppercase"
-                                    >
-                                      ABC
-                                    </motion.span>
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    <p className="text-[9px] text-stone-500 leading-tight">
-                      Disable subtitle visibility to completely hide captions on both live preview and exported videos, or use "Clear" to reset.
-                    </p>
-                   </div>
-                  </div>
-                 </div>
-                  </>
-                  )}
-
-                  {inspectorTab === "vfx" && (
-                  <>
-                  <div className="grid grid-cols-1 lg:grid-cols-[350px_1fr] gap-4">
-                    {renderInspectorPreview()}
-                    <div className="space-y-4">
-                  {/* Advanced Camera Motion & VFX Studio */}
-                  <div className="border-t border-stone-800/60 pt-4 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[10px] font-mono uppercase text-stone-400 font-bold flex items-center gap-1.5">
-                        <Sliders className="w-3.5 h-3.5 text-amber-500" />
-                        ADVANCED CAMERA & VFX STUDIO
-                      </label>
-                      <span className="text-[9px] bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded font-mono font-bold uppercase border border-amber-500/20">
-                        Pro Tools Enabled
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-stone-950 p-4 rounded-2xl border border-stone-800/80">
-                      {/* Sub-Panel 1: Motion Vectors */}
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2 border-b border-stone-800/55 pb-1.5">
-                          <Compass className="w-3.5 h-3.5 text-amber-400" />
-                          <span className="text-[10px] font-bold text-stone-200 font-mono uppercase">1. Motion & Direction Vectors</span>
-                        </div>
-
-                        <div>
-                          <div className="flex justify-between items-center mb-1">
-                            <label className="text-[10px] text-stone-400">Motion Angle (Direction)</label>
-                            <span className="text-[10px] font-mono text-amber-500 font-bold">{(slides[currentIndex] && slides[currentIndex].motionAngle) !== undefined ? slides[currentIndex].motionAngle : 0}°</span>
-                          </div>
-                          <div className="flex gap-2.5 items-center">
-                            <input
-                              type="range"
-                              min="0"
-                              max="360"
-                              value={(slides[currentIndex] && slides[currentIndex].motionAngle) !== undefined ? slides[currentIndex].motionAngle : 0}
-                              onChange={(e) => {
-                                const updated = [...slides];
-                                updated[currentIndex].motionAngle = Number(e.target.value);
-                                setSlides(updated);
-                              }}
-                              className="flex-1 accent-amber-500 cursor-pointer h-1 bg-stone-900 rounded-lg appearance-none"
-                            />
-                            {/* Circular visual feedback dial */}
-                            <div className="w-6 h-6 rounded-full border border-stone-800 bg-stone-900 flex items-center justify-center relative shadow-inner overflow-hidden">
-                              <div 
-                                className="w-2 h-0.5 bg-amber-500 origin-left absolute"
-                                style={{ transform: `rotate(${((slides[currentIndex] && slides[currentIndex].motionAngle) !== undefined ? slides[currentIndex].motionAngle : 0) - 90}deg)`, left: "50%" }}
-                              />
-                            </div>
-                          </div>
-                          <div className="flex justify-between text-[8px] font-mono text-stone-500 mt-1">
-                            <span>0° (Up)</span>
-                            <span>90° (Right)</span>
-                            <span>180° (Down)</span>
-                            <span>270° (Left)</span>
-                          </div>
-                        </div>
-
-                        <div>
-                          <div className="flex justify-between items-center mb-1">
-                            <label className="text-[10px] text-stone-400 font-medium">Motion Speed (Force)</label>
-                            <span className="text-[10px] font-mono text-amber-500 font-bold">{(slides[currentIndex] && slides[currentIndex].motionSpeed) !== undefined ? slides[currentIndex].motionSpeed : 0}%</span>
-                          </div>
-                          <input
-                            type="range"
-                            min="0"
-                            max="100"
-                            value={(slides[currentIndex] && slides[currentIndex].motionSpeed) !== undefined ? slides[currentIndex].motionSpeed : 0}
-                            onChange={(e) => {
-                              const updated = [...slides];
-                              updated[currentIndex].motionSpeed = Number(e.target.value);
-                              setSlides(updated);
-                            }}
-                            className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-900 rounded-lg appearance-none"
-                          />
-                          <div className="flex justify-between text-[8px] font-mono text-stone-500 mt-1">
-                            <span>0% (Disabled)</span>
-                            <span>50% (Gentle)</span>
-                            <span>100% (Cinematic Fast)</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Sub-Panel 2: Anchor Pin & Masking Brush */}
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2 border-b border-stone-800/55 pb-1.5">
-                          <Eye className="w-3.5 h-3.5 text-amber-400" />
-                          <span className="text-[10px] font-bold text-stone-200 font-mono uppercase">2. Focal Anchor & Mask Brush</span>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <span className="text-[9px] text-stone-400 block mb-1">Anchor X%</span>
-                            <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              value={(slides[currentIndex] && slides[currentIndex].anchorX) !== undefined ? slides[currentIndex].anchorX : 50}
-                              onChange={(e) => {
-                                const updated = [...slides];
-                                updated[currentIndex].anchorX = Math.max(0, Math.min(100, Number(e.target.value)));
-                                setSlides(updated);
-                              }}
-                              className="w-full bg-stone-900 border border-stone-800 rounded-lg px-2 py-1 text-xs text-stone-200 text-center focus:border-amber-500/50 focus:outline-none"
-                            />
-                          </div>
-                          <div>
-                            <span className="text-[9px] text-stone-400 block mb-1">Anchor Y%</span>
-                            <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              value={(slides[currentIndex] && slides[currentIndex].anchorY) !== undefined ? slides[currentIndex].anchorY : 50}
-                              onChange={(e) => {
-                                const updated = [...slides];
-                                updated[currentIndex].anchorY = Math.max(0, Math.min(100, Number(e.target.value)));
-                                setSlides(updated);
-                              }}
-                              className="w-full bg-stone-900 border border-stone-800 rounded-lg px-2 py-1 text-xs text-stone-200 text-center focus:border-amber-500/50 focus:outline-none"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const updated = [...slides];
-                              updated[currentIndex].anchorX = 50;
-                              updated[currentIndex].anchorY = 50;
-                              setSlides(updated);
-                            }}
-                            className="flex-1 py-1 px-2 text-[8px] font-mono font-bold uppercase rounded border border-stone-800 bg-stone-900 hover:bg-stone-800 text-stone-400 transition-colors cursor-pointer"
-                          >
-                            Reset Focus to Center
-                          </button>
-                        </div>
-
-                        <div>
-                          <label className="block text-[9px] text-stone-400 mb-1">Mask Brush Type</label>
-                          <select
-                            value={(slides[currentIndex] && slides[currentIndex].maskType) || "none"}
-                            onChange={(e) => {
-                              const updated = [...slides];
-                              updated[currentIndex].maskType = e.target.value as any;
-                              if (updated[currentIndex].maskRadius === undefined) {
-                                updated[currentIndex].maskRadius = 40;
-                              }
-                              if (updated[currentIndex].maskFeather === undefined) {
-                                updated[currentIndex].maskFeather = 50;
-                              }
-                              setSlides(updated);
-                            }}
-                            className="w-full bg-stone-900 border border-stone-800 rounded-lg px-2 py-1.5 text-[10px] text-stone-300 focus:outline-none"
-                          >
-                            <option value="none">No Spotlight Mask</option>
-                            <option value="radial_focus">Radial Spotlight Focus</option>
-                            <option value="vignette">Deep Vignette Shading</option>
-                            <option value="split_mask">Graduated Split Mask</option>
-                          </select>
-                        </div>
-
-                        {slides[currentIndex] && slides[currentIndex].maskType && slides[currentIndex].maskType !== "none" && (
-                          <div className="space-y-2 pt-1">
-                            <div>
-                              <div className="flex justify-between items-center text-[9px]">
-                                <span className="text-stone-500">Spotlight Radius</span>
-                                <span className="text-amber-500 font-bold">{slides[currentIndex].maskRadius || 40}%</span>
-                              </div>
-                              <input
-                                type="range"
-                                min="10"
-                                max="100"
-                                value={slides[currentIndex].maskRadius || 40}
-                                onChange={(e) => {
-                                  const updated = [...slides];
-                                  updated[currentIndex].maskRadius = Number(e.target.value);
-                                  setSlides(updated);
-                                }}
-                                className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-900 rounded-lg appearance-none"
-                              />
-                            </div>
-                            <div>
-                              <div className="flex justify-between items-center text-[9px]">
-                                <span className="text-stone-500">Brush Feather</span>
-                                <span className="text-amber-500 font-bold">{slides[currentIndex].maskFeather || 50}%</span>
-                              </div>
-                              <input
-                                type="range"
-                                min="0"
-                                max="100"
-                                value={slides[currentIndex].maskFeather || 50}
-                                onChange={(e) => {
-                                  const updated = [...slides];
-                                  updated[currentIndex].maskFeather = Number(e.target.value);
-                                  setSlides(updated);
-                                }}
-                                className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-900 rounded-lg appearance-none"
-                              />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-stone-950 p-4 rounded-2xl border border-stone-800/80">
-                      {/* Sub-Panel 3: Camera 3D Position Offsets */}
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2 border-b border-stone-800/55 pb-1.5">
-                          <Settings className="w-3.5 h-3.5 text-amber-400" />
-                          <span className="text-[10px] font-bold text-stone-200 font-mono uppercase">3. Cinematic Camera Controls</span>
-                        </div>
-
-                        <div>
-                          <div className="flex justify-between items-center mb-1">
-                            <label className="text-[10px] text-stone-400">Camera Roll (Rotation Twist)</label>
-                            <span className="text-[10px] font-mono text-amber-500 font-bold">{slides[currentIndex] && slides[currentIndex].cameraRoll !== undefined ? slides[currentIndex].cameraRoll : 0}°</span>
-                          </div>
-                          <input
-                            type="range"
-                            min="-45"
-                            max="45"
-                            value={slides[currentIndex] && slides[currentIndex].cameraRoll !== undefined ? slides[currentIndex].cameraRoll : 0}
-                            onChange={(e) => {
-                              const updated = [...slides];
-                              updated[currentIndex].cameraRoll = Number(e.target.value);
-                              setSlides(updated);
-                            }}
-                            className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-900 rounded-lg appearance-none"
-                          />
-                          <div className="flex justify-between text-[8px] font-mono text-stone-500 mt-1">
-                            <span>-45° Left</span>
-                            <span>0° Level</span>
-                            <span>+45° Right</span>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-3.5">
-                          <div>
-                            <div className="flex justify-between items-center mb-1 text-[9px]">
-                              <span className="text-stone-400">Camera Pitch (Tilt)</span>
-                              <span className="text-amber-500 font-bold font-mono">{slides[currentIndex] && slides[currentIndex].cameraPitch !== undefined ? slides[currentIndex].cameraPitch : 0}°</span>
-                            </div>
-                            <input
-                              type="range"
-                              min="-30"
-                              max="30"
-                              value={slides[currentIndex] && slides[currentIndex].cameraPitch !== undefined ? slides[currentIndex].cameraPitch : 0}
-                              onChange={(e) => {
-                                const updated = [...slides];
-                                updated[currentIndex].cameraPitch = Number(e.target.value);
-                                setSlides(updated);
-                              }}
-                              className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-900 rounded-lg appearance-none"
-                            />
-                          </div>
-
-                          <div>
-                            <div className="flex justify-between items-center mb-1 text-[9px]">
-                              <span className="text-stone-400">Camera Yaw (Pan)</span>
-                              <span className="text-amber-500 font-bold font-mono">{slides[currentIndex] && slides[currentIndex].cameraYaw !== undefined ? slides[currentIndex].cameraYaw : 0}°</span>
-                            </div>
-                            <input
-                              type="range"
-                              min="-30"
-                              max="30"
-                              value={slides[currentIndex] && slides[currentIndex].cameraYaw !== undefined ? slides[currentIndex].cameraYaw : 0}
-                              onChange={(e) => {
-                                const updated = [...slides];
-                                updated[currentIndex].cameraYaw = Number(e.target.value);
-                                setSlides(updated);
-                              }}
-                              className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-900 rounded-lg appearance-none"
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Sub-Panel 4: 3D Depth Parallax Simulation */}
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2 border-b border-stone-800/55 pb-1.5">
-                          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                          <span className="text-[10px] font-bold text-stone-200 font-mono uppercase">4. Deep 3D Parallax Separation</span>
-                        </div>
-
-                        <div className="flex items-center justify-between bg-stone-900/60 p-2.5 rounded-xl border border-stone-800/50">
-                          <div className="space-y-0.5">
-                            <span className="block text-[10px] font-bold text-stone-300">Enable 3D Parallax</span>
-                            <span className="block text-[8px] text-stone-500 leading-none">Simulates depth layers splitting on animation</span>
-                          </div>
-                          <label className="relative inline-flex items-center cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={!!(slides[currentIndex] && slides[currentIndex].parallaxEnabled)}
-                              onChange={(e) => {
-                                const updated = [...slides];
-                                updated[currentIndex].parallaxEnabled = e.target.checked;
-                                if (e.target.checked && updated[currentIndex].parallaxStrength === undefined) {
-                                  updated[currentIndex].parallaxStrength = 30;
-                                }
-                                setSlides(updated);
-                              }}
-                              className="sr-only peer"
-                            />
-                            <div className="w-8 h-4.5 bg-stone-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-stone-300 after:border-stone-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-amber-500 peer-checked:after:bg-stone-950 peer-checked:after:border-stone-950" />
-                          </label>
-                        </div>
-
-                        {slides[currentIndex] && slides[currentIndex].parallaxEnabled && (
-                          <div>
-                            <div className="flex justify-between items-center mb-1">
-                              <label className="text-[10px] text-stone-400">Parallax Displacement Power</label>
-                              <span className="text-[10px] font-mono text-amber-500 font-bold">{slides[currentIndex].parallaxStrength || 30}%</span>
-                            </div>
-                            <input
-                              type="range"
-                              min="10"
-                              max="100"
-                              value={slides[currentIndex].parallaxStrength || 30}
-                              onChange={(e) => {
-                                const updated = [...slides];
-                                updated[currentIndex].parallaxStrength = Number(e.target.value);
-                                setSlides(updated);
-                              }}
-                              className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-900 rounded-lg appearance-none"
-                            />
-                            <div className="flex justify-between text-[8px] font-mono text-stone-500 mt-1">
-                              <span>10% (Shallow)</span>
-                              <span>50% (Balanced)</span>
-                              <span>100% (Maximum Separation)</span>
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="p-2 bg-amber-500/5 rounded-lg border border-amber-500/10 text-[8px] font-mono text-amber-400/80 leading-relaxed">
-                          ⚡ Anchor Focus Pin sets the optical pivot point. Parallax mimics a stereoscopic camera lens, drifting foreground details to add rich 3D perspective to standard 2D photos.
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Sub-Panel 5: Cinematic Special Effects Overlay (VFX) */}
-                    <div className="bg-stone-950 p-4 rounded-2xl border border-stone-800/80 space-y-3.5 mt-4">
-                      <div className="flex items-center justify-between border-b border-stone-800/55 pb-2">
-                        <div className="flex items-center gap-2">
-                          <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-                          <span className="text-[10px] font-bold text-stone-200 font-mono uppercase">5. Cinematic Visual Effects (VFX) Overlays</span>
-                        </div>
-                        <span className="text-[8px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded font-mono font-bold uppercase border border-amber-500/20 animate-pulse">
-                          Active VFX Studio
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-[9px] text-stone-400 uppercase font-mono mb-1.5">Choose VFX Overlay Style</label>
-                          <select
-                            value={(slides[currentIndex] && slides[currentIndex].vfxType) || "none"}
-                            onChange={(e) => {
-                              const updated = [...slides];
-                              updated[currentIndex].vfxType = e.target.value as any;
-                              if (updated[currentIndex].vfxIntensity === undefined) {
-                                updated[currentIndex].vfxIntensity = 50;
-                              }
-                              setSlides(updated);
-                            }}
-                            className="w-full bg-stone-900 border border-stone-800 rounded-xl px-3 py-2 text-xs text-stone-200 focus:border-amber-500/50 focus:outline-none cursor-pointer"
-                          >
-                            <option value="none">✨ No VFX Overlay</option>
-                            <option value="lens_flare">🎥 Anamorphic Lens Flare (Focal Based)</option>
-                            <option value="light_leak">🔥 Vintage Projector Light Leak Sweep</option>
-                            <option value="film_grain">🎞️ 35mm Analog Film Grain & Dust Scratches</option>
-                            <option value="snow">❄️ Cozy Atmospheric Winter Snowfall</option>
-                            <option value="rain">🌧️ Dramatic Cinematic Rain Shower</option>
-                            <option value="vhs">📼 Retro 80s VHS Video Tape scanlines</option>
-                            <option value="bokeh">🟡 Soft Golden Floating Bokeh Bubbles</option>
-                          </select>
-                        </div>
-
-                        {slides[currentIndex] && slides[currentIndex].vfxType && slides[currentIndex].vfxType !== "none" && (
-                          <div className="space-y-1.5">
-                            <div className="flex justify-between items-center text-[10px]">
-                              <span className="text-stone-400 uppercase font-mono">VFX Intensity / Scale</span>
-                              <span className="text-amber-500 font-bold font-mono">{slides[currentIndex].vfxIntensity || 50}%</span>
-                            </div>
-                            <input
-                              type="range"
-                              min="10"
-                              max="100"
-                              value={slides[currentIndex].vfxIntensity || 50}
-                              onChange={(e) => {
-                                const updated = [...slides];
-                                updated[currentIndex].vfxIntensity = Number(e.target.value);
-                                setSlides(updated);
-                              }}
-                              className="w-full accent-amber-500 cursor-pointer h-1.5 bg-stone-900 rounded-lg appearance-none mt-1"
-                            />
-                            <div className="flex justify-between text-[8px] font-mono text-stone-500">
-                              <span>10% (Subtle Accent)</span>
-                              <span>50% (Standard)</span>
-                              <span>100% (High Density)</span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                      <p className="text-[9px] text-stone-500 leading-tight">
-                        ✨ Pro Tip: The Lens Flare effect will automatically align to your chosen **Anchor Focus Pin** on the slide, creating gorgeous focal perspective. Light Leak and VHS effects add rich nostalgia to historic memories.
-                      </p>
-                    </div>
-
-                    {/* Sub-Panel 6: Custom Animation Curve Editor (Bezier) */}
-                    <div className="bg-stone-950 p-4 rounded-2xl border border-stone-800/80 space-y-3.5 mt-4">
-                      <div className="flex items-center justify-between border-b border-stone-800/55 pb-2">
-                        <div className="flex items-center gap-2">
-                          <Settings className="w-3.5 h-3.5 text-amber-400" />
-                          <span className="text-[10px] font-bold text-stone-200 font-mono uppercase">6. Custom Animation Curve (Easing)</span>
-                        </div>
-                      </div>
-                      <div className="space-y-4">
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => {
-                              const updated = [...slides];
-                              updated[currentIndex].bezierCurve = undefined;
-                              setSlides(updated);
-                            }}
-                            className={`flex-1 py-1.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer border ${!slides[currentIndex].bezierCurve ? "bg-amber-500/10 border-amber-500/40 text-amber-400" : "bg-stone-900 border-stone-800 text-stone-400 hover:text-stone-300"}`}
-                          >
-                            Default
-                          </button>
-                          <button
-                            onClick={() => {
-                              const updated = [...slides];
-                              updated[currentIndex].bezierCurve = [0.25, 0.1, 0.25, 1]; // ease
-                              setSlides(updated);
-                            }}
-                            className={`flex-1 py-1.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer border ${slides[currentIndex].bezierCurve ? "bg-amber-500/10 border-amber-500/40 text-amber-400" : "bg-stone-900 border-stone-800 text-stone-400 hover:text-stone-300"}`}
-                          >
-                            Custom Curve
-                          </button>
-                        </div>
-                        
-                        {slides[currentIndex].bezierCurve && (
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                            {[
-                              { label: 'P1 X', idx: 0, min: 0, max: 1 },
-                              { label: 'P1 Y', idx: 1, min: -1, max: 2 },
-                              { label: 'P2 X', idx: 2, min: 0, max: 1 },
-                              { label: 'P2 Y', idx: 3, min: -1, max: 2 },
-                            ].map(({ label, idx, min, max }) => (
-                              <div key={label}>
-                                <div className="flex justify-between items-center mb-1">
-                                  <label className="text-[9px] text-stone-400 font-mono">{label}</label>
-                                  <span className="text-[9px] font-mono text-amber-500">{slides[currentIndex].bezierCurve![idx].toFixed(2)}</span>
-                                </div>
-                                <input
-                                  type="range"
-                                  min={min}
-                                  max={max}
-                                  step={0.01}
-                                  value={slides[currentIndex].bezierCurve![idx]}
-                                  onChange={(e) => {
-                                    const updated = [...slides];
-                                    const curve = [...(updated[currentIndex].bezierCurve || [0.25, 0.1, 0.25, 1])] as [number, number, number, number];
-                                    curve[idx] = parseFloat(e.target.value);
-                                    updated[currentIndex].bezierCurve = curve;
-                                    setSlides(updated);
-                                  }}
-                                  className="w-full accent-amber-500 cursor-pointer h-1 bg-stone-900 rounded-lg appearance-none"
-                                />
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        <p className="text-[9px] text-stone-500 leading-tight">
-                          Adjust the cubic-bezier coordinates to craft bespoke animation easing. The X axis represents time (0 to 1), and Y represents progression. You can exceed the 0-1 bounds on the Y axis for bounce/overshoot effects!
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Option to Check All Frames for Quality Issues / Audit Warnings */}
-                    <div className="border-t border-stone-800/60 pt-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[10px] font-mono uppercase text-stone-400 font-bold flex items-center gap-1.5">
-                          <Eye className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
-                          Cinematic Quality Auditor (Check All Frames)
-                        </label>
-                        <span className="text-[8px] font-mono text-stone-500 bg-stone-950 px-2 py-0.5 rounded border border-stone-850">
-                          Scan Whole Timeline
-                        </span>
-                      </div>
-
-                      <div className="bg-stone-950 p-4 rounded-2xl border border-stone-850 space-y-3">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                          <span className="text-[10px] text-stone-400 font-mono leading-tight">
-                            Scans visual transitions, colors, aspect ratios, durations & subtitles.
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const reports: string[] = [];
-                              slides.forEach((slide, idx) => {
-                                const prefix = `Scene #${idx + 1} (${slide.name || "Untitled"}):`;
-                                if (!slide.caption || slide.caption.trim() === "") {
-                                  reports.push(`${prefix} Subtitle caption text is missing or blank.`);
-                                }
-                                if (slide.duration < 3) {
-                                  reports.push(`${prefix} Fast play duration (${slide.duration}s); might feel rushed.`);
-                                }
-                                if (slide.duration > 8) {
-                                  reports.push(`${prefix} Long static play duration (${slide.duration}s); consider adding Parallax.`);
-                                }
-                                if (slide.filter === "none" || !slide.filter) {
-                                  reports.push(`${prefix} Normal raw photo colors. Try Vintage, Sunny, or Cool filters.`);
-                                }
-                                if (!slide.transition || slide.transition === "fadeOnly") {
-                                  reports.push(`${prefix} Basic transition fade. Try Zoom, Pan, or Tilt effect.`);
-                                }
-                              });
-                              setAuditReports(reports);
-                            }}
-                            className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold font-mono text-[9px] rounded-lg transition-colors cursor-pointer whitespace-nowrap self-start sm:self-auto"
-                          >
-                            Check All Frames
-                          </button>
-                        </div>
-
-                        {/* Display Audit Reports */}
-                        {auditReports && auditReports.length > 0 ? (
-                          <div className="space-y-1.5 max-h-[160px] overflow-y-auto pr-1">
-                            <div className="flex items-center justify-between text-[9px] font-mono text-amber-500 font-bold border-b border-stone-800 pb-1">
-                              <span>Found {auditReports.length} Suggestions:</span>
-                              <button
-                                type="button"
-                                onClick={() => setAuditReports(null)}
-                                className="text-stone-500 hover:text-stone-300 underline cursor-pointer"
-                              >
-                                Clear Report
-                              </button>
-                            </div>
-                            {auditReports.map((report, rIdx) => {
-                              const isWarning = report.includes("missing") || report.includes("Fast");
-                              return (
-                                <div 
-                                  key={rIdx} 
-                                  className={`text-[10px] font-mono p-1.5 rounded-lg border leading-relaxed flex items-start gap-1.5 ${
-                                    isWarning 
-                                      ? "bg-rose-500/5 border-rose-500/20 text-rose-300" 
-                                      : "bg-amber-500/5 border-amber-500/10 text-stone-300"
-                                  }`}
-                                >
-                                  <span className="mt-0.5 text-[8px] flex-shrink-0">
-                                    {isWarning ? "⚠️" : "💡"}
-                                  </span>
-                                  <span>{report}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : auditReports && auditReports.length === 0 ? (
-                          <div className="text-[10px] text-emerald-400 font-mono text-center py-2 bg-emerald-500/5 rounded-xl border border-emerald-500/10 flex items-center justify-center gap-1.5">
-                            <span>✨</span>
-                            <span>No suggestions! All timeline frames are fully optimized for cinematic export.</span>
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                 </div>
-                </div>
-                  </>
-                  )}
+                  {/* Quick Replay Button */}
+                  <button
+                    onClick={() => setPreviewToggle(p => p + 1)}
+                    className="hud-btn hud-btn-cyan w-full py-2.5 text-xs font-bold mt-2"
+                  >
+                    <Play className="w-3.5 h-3.5 inline mr-1.5" />
+                    PREVIEW MOTION EFFECT
+                  </button>
                 </div>
               )}
 
-              {/* STYLES & PRESETS STUDIO */}
-              <AnimatePresence>
-                {slides.length > 0 && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
-                    transition={{ duration: 0.4, ease: "easeOut" }}
-                    className="bg-stone-900 border border-stone-800 rounded-3xl p-6 shadow-2xl space-y-4"
-                  >
-                    <div className="flex items-center justify-between border-b border-stone-800/80 pb-3 mb-1">
-                      <div className="flex items-center gap-2">
-                        <Bookmark className="w-5 h-5 text-amber-500" />
-                        <h3 className="text-sm font-extrabold text-stone-200 uppercase tracking-wider font-mono">
-                          Styles & Presets Studio
-                        </h3>
-                      </div>
-                      <span className="text-[10px] font-mono text-amber-500 font-bold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
-                        Live Templates
-                      </span>
+              {/* TAB 3: CAPTIONS & SUBTITLES */}
+              {activeTab === "captions" && (
+                <div className="space-y-4">
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="font-mono-hud text-[9px] text-white/60">
+                        SUBTITLE / CAPTION TEXT
+                      </label>
+                      <button
+                        onClick={handleRegenerateCaptions}
+                        disabled={isGeneratingCaptions}
+                        className="font-mono-hud text-[9px] text-[#22d3ee] hover:underline flex items-center gap-1 disabled:opacity-50 cursor-pointer"
+                        title="Rewrite captions using AI storyline generator"
+                      >
+                        <Sparkles className={`w-3 h-3 ${isGeneratingCaptions ? "animate-spin" : ""}`} />
+                        {isGeneratingCaptions ? "GENERATING..." : "AI REWRITE"}
+                      </button>
                     </div>
-
-                    {presetFeedback && (
-                      <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 p-2.5 rounded-xl text-xs flex items-center gap-2 animate-pulse font-medium">
-                        <Check className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                        <span>{presetFeedback}</span>
-                      </div>
-                    )}
-
-                    <p className="text-xs text-stone-400 leading-relaxed">
-                      Save your custom combination of transitions, artistic filters, camera pan, and cinematic VFX as reusable presets, or apply pre-built style templates instantly.
-                    </p>
-
-                    <div className="space-y-4">
-                      {/* Custom Preset Saving Form */}
-                      <div className="bg-stone-950 p-4 rounded-2xl border border-stone-800/80 space-y-3">
-                        <div className="flex items-center gap-2">
-                          <Save className="w-3.5 h-3.5 text-amber-500" />
-                          <span className="text-[10px] font-bold text-stone-300 font-mono uppercase">Save Active Frame Style as Preset</span>
-                        </div>
-                        
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            value={newPresetName}
-                            onChange={(e) => setNewPresetName(e.target.value)}
-                            placeholder="e.g., Midnight Retro Cyber, Cinematic Noir 3D"
-                            className="flex-1 bg-stone-900 border border-stone-800 rounded-xl px-3.5 py-2 text-xs text-stone-200 focus:border-amber-500/50 focus:outline-none"
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" && newPresetName.trim()) {
-                                saveCurrentStylesAsPreset(newPresetName);
-                              }
-                            }}
-                          />
-                          <button
-                            onClick={() => saveCurrentStylesAsPreset(newPresetName)}
-                            disabled={!newPresetName.trim()}
-                            className="px-4 py-2 bg-amber-500 hover:bg-amber-400 disabled:bg-stone-800 disabled:text-stone-500 disabled:border-stone-850 text-stone-950 rounded-xl text-xs font-bold transition-all hover:scale-[1.02] cursor-pointer"
-                          >
-                            Save Preset
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Presets List Sections (Curated) */}
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-bold text-stone-400 font-mono uppercase">Curated Cinematic Templates</span>
-                          <span className="text-[8px] text-stone-500 font-mono">Click to Apply</span>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-stone-800 scrollbar-track-transparent">
-                          {SYSTEM_PRESETS.map((preset) => {
-                            const isActive = slides[currentIndex] && 
-                              slides[currentIndex].transition === preset.transition && 
-                              slides[currentIndex].filter === preset.filter && 
-                              slides[currentIndex].vfxType === preset.vfxType;
-                            return (
-                              <div 
-                                key={preset.id}
-                                className={`p-2.5 rounded-xl border text-left transition-all relative flex flex-col justify-between gap-2 bg-stone-950/40 hover:bg-stone-950/90 cursor-pointer group ${
-                                  isActive ? "border-amber-500 bg-amber-500/5" : "border-stone-800/80 hover:border-stone-700"
-                                }`}
-                              >
-                                <div className="space-y-0.5">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-[11px] font-bold text-stone-200 group-hover:text-amber-400 transition-colors">
-                                      {preset.name}
-                                    </span>
-                                    {isActive && <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />}
-                                  </div>
-                                  <span className="block text-[8px] text-stone-500 leading-tight">
-                                    {preset.description}
-                                  </span>
-                                </div>
-
-                                <div className="flex gap-1.5 mt-1 border-t border-stone-900/60 pt-1.5">
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      loadPreset(preset, false);
-                                    }}
-                                    className="flex-1 text-[8px] font-mono font-bold bg-stone-900 hover:bg-stone-800 text-stone-300 py-1 px-1.5 rounded transition-all cursor-pointer border border-stone-800"
-                                  >
-                                    Apply Active
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      loadPreset(preset, true);
-                                    }}
-                                    className="flex-1 text-[8px] font-mono font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 py-1 px-1.5 rounded transition-all cursor-pointer border border-amber-500/20"
-                                    title="Apply style to all slides in timeline"
-                                  >
-                                    Apply to All
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      {/* Saved Custom Presets */}
-                      <div className="space-y-3 pt-2 border-t border-stone-800/55">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-bold text-stone-400 font-mono uppercase">Your Reusable Style Templates ({customPresets.length})</span>
-                          {customPresets.length === 0 && <span className="text-[8px] text-stone-600 font-mono italic">No custom presets saved yet</span>}
-                        </div>
-
-                        {customPresets.length > 0 && (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[160px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-stone-800 scrollbar-track-transparent">
-                            {customPresets.map((preset) => (
-                              <div 
-                                key={preset.id}
-                                className="p-2.5 rounded-xl border border-stone-800/80 bg-stone-950/40 hover:bg-stone-950 hover:border-stone-700 transition-all flex flex-col justify-between gap-2"
-                              >
-                                <div className="space-y-0.5">
-                                  <div className="flex items-center justify-between gap-1">
-                                    <span className="text-[11px] font-bold text-stone-200 truncate" title={preset.name}>
-                                      ⭐ {preset.name}
-                                    </span>
-                                    <button
-                                      onClick={() => deleteCustomPreset(preset.id)}
-                                      className="text-stone-500 hover:text-rose-400 p-0.5 transition-colors cursor-pointer"
-                                      title="Delete Preset"
-                                    >
-                                      <Trash2 className="w-3 h-3" />
-                                    </button>
-                                  </div>
-                                  <span className="block text-[8px] text-stone-500 font-mono">
-                                    {preset.description}
-                                  </span>
-                                </div>
-
-                                <div className="flex gap-1.5 mt-1 border-t border-stone-900/40 pt-1.5">
-                                  <button
-                                    onClick={() => loadPreset(preset, false)}
-                                    className="flex-1 text-[8px] font-mono font-bold bg-stone-900 hover:bg-stone-800 text-stone-300 py-1 px-1.5 rounded transition-all cursor-pointer border border-stone-800"
-                                  >
-                                    Apply Active
-                                  </button>
-                                  <button
-                                    onClick={() => loadPreset(preset, true)}
-                                    className="flex-1 text-[8px] font-mono font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 py-1 px-1.5 rounded transition-all cursor-pointer border border-amber-500/20"
-                                  >
-                                    Apply to All
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Master Timeline & Slides Management List */}
-              <div className="bg-stone-900 border border-stone-800 rounded-3xl p-6 shadow-2xl space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Layers className="w-5 h-5 text-amber-500" />
-                    <h3 className="text-sm font-extrabold text-stone-200">Timeline Slides ({slides.length})</h3>
+                    <textarea
+                      rows={3}
+                      value={currentSlide.caption}
+                      onChange={e => {
+                        const updated = [...slides];
+                        updated[currentIndex].caption = e.target.value;
+                        setSlides(updated);
+                      }}
+                      placeholder="Enter subtitle caption overlay..."
+                      className="hud-input w-full p-2.5 text-xs focus:ring-0 resize-none"
+                    />
                   </div>
+
+                  {/* Description / Story Note */}
+                  <div>
+                    <label className="block font-mono-hud text-[9px] text-white/60 mb-1.5">
+                      SCENE / SHOT NOTE
+                    </label>
+                    <input
+                      type="text"
+                      value={currentSlide.description || ""}
+                      onChange={e => {
+                        const updated = [...slides];
+                        updated[currentIndex].description = e.target.value;
+                        setSlides(updated);
+                      }}
+                      placeholder="e.g., Driver looking towards skyline..."
+                      className="hud-input w-full px-3 py-2 text-xs"
+                    />
+                  </div>
+
+                  {/* Clear Caption */}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        const updated = [...slides];
+                        updated[currentIndex].caption = "";
+                        setSlides(updated);
+                        showToast("Caption removed", "info");
+                      }}
+                      className="hud-btn flex-1 py-2 text-[10px] text-white/60"
+                    >
+                      REMOVE CAPTION
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Slide Action Buttons: Move Left / Move Right / Duplicate / Delete */}
+              <div className="pt-3 border-t border-[#8b5cf6]/20 flex flex-col gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   <button
-                    onClick={() => {
-                      setSlides([]);
-                      setCurrentIndex(0);
-                    }}
-                    className="text-xs text-stone-500 hover:text-rose-400 transition-colors cursor-pointer"
+                    onClick={() => moveSlide(currentIndex, currentIndex - 1)}
+                    disabled={currentIndex <= 0}
+                    className="hud-btn py-2 text-[10px] flex items-center justify-center gap-1 disabled:opacity-40"
+                    title="Move slide earlier in timeline"
                   >
-                    Clear All
+                    <ChevronLeft className="w-3.5 h-3.5 text-[#22d3ee]" />
+                    MOVE LEFT
+                  </button>
+                  <button
+                    onClick={() => moveSlide(currentIndex, currentIndex + 1)}
+                    disabled={currentIndex >= slides.length - 1}
+                    className="hud-btn py-2 text-[10px] flex items-center justify-center gap-1 disabled:opacity-40"
+                    title="Move slide later in timeline"
+                  >
+                    MOVE RIGHT
+                    <ChevronRight className="w-3.5 h-3.5 text-[#22d3ee]" />
                   </button>
                 </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => duplicateSlide(currentIndex)}
+                    className="hud-btn py-2 text-[10px] flex items-center justify-center gap-1.5"
+                    title="Duplicate this slide"
+                  >
+                    <Copy className="w-3.5 h-3.5 text-[#22d3ee]" />
+                    DUPLICATE
+                  </button>
+                  <button
+                    onClick={() => deleteSlide(currentIndex)}
+                    className="hud-btn py-2 text-[10px] text-[#ff3d9a] hover:border-[#ff3d9a] flex items-center justify-center gap-1.5"
+                    title="Delete this slide (Delete key)"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    DELETE
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="py-12 text-center text-white/40 text-xs font-mono-hud">
+              Select or add a slide to edit properties.
+            </div>
+          )}
+        </aside>
+      </main>
 
-                {/* Horizontal Sequence Strip Preview */}
-                {slides.length > 0 && (
-                  <div className="space-y-2.5 bg-stone-950/70 border border-stone-800/80 p-3.5 rounded-2xl">
-                    <div className="flex justify-between items-center text-[10px] font-mono text-stone-400 uppercase tracking-wider">
-                      <span className="flex items-center gap-1.5 font-bold">
-                        <Sparkles className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
-                        Interactive Sequence Strip
-                      </span>
-                      <span className="text-stone-500 font-bold">
-                        Total: {slides.reduce((acc, s) => acc + (s.duration || 3), 0)}s • {slides.length} slides
-                      </span>
-                    </div>
+      {/* BOTTOM SECTION: TIMELINE TRACKS, PLAYHEAD, AND AUDIO WAVEFORM */}
+      <footer className="relative z-20 border-t border-[#8b5cf6]/25 bg-[#0e0a1e]/90 backdrop-blur-md px-4 sm:px-6 py-3">
+        <div className="max-w-7xl mx-auto flex flex-col gap-3">
+          {/* Timeline Header Row with Tools */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-3">
+              <span className="font-mono-hud text-xs text-[#22d3ee] font-bold">
+                TIMELINE // SYNC
+              </span>
+              <span className="font-mono-hud text-[9px] text-white/50">
+                {slides.length} SHOTS · {formatTimecode(totalDuration)}
+              </span>
+            </div>
 
-                    <div className="flex items-center gap-2 overflow-x-auto py-1.5 scrollbar-thin scrollbar-thumb-stone-800 scrollbar-track-transparent">
-                      {slides.map((slide, idx) => {
-                        const isSelected = currentIndex === idx;
-                        return (
-                          <div key={`strip-${slide.id}`} className="flex items-center flex-shrink-0">
-                            {/* Thumbnail Card */}
-                            <button
-                              onClick={() => {
-                                setCurrentIndex(idx);
-                                setProgress(0);
-                              }}
-                              className={`relative group flex-shrink-0 cursor-pointer rounded-xl overflow-hidden border-2 transition-all duration-200 outline-none ${
-                                isSelected
-                                  ? "border-amber-500 ring-2 ring-amber-500/20 scale-[1.03] shadow-md"
-                                  : "border-stone-800 hover:border-stone-600 scale-100 hover:scale-[1.01]"
-                              }`}
-                              style={{ width: "84px", height: "56px" }}
-                              title={`Slide ${idx + 1}: ${slide.caption || "No caption"}`}
-                            >
-                              <img
-                                src={slide.url}
-                                alt={`Slide ${idx + 1}`}
-                                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
-                                style={{ filter: getFilterCss(slide) }}
-                                referrerPolicy="no-referrer"
-                              />
-
-                              {/* Corner index badge */}
-                              <span className="absolute top-1 left-1 px-1.5 py-0.5 text-[8px] font-mono font-black rounded bg-stone-950/85 text-stone-300 border border-stone-800/60 leading-none">
-                                {idx + 1}
-                              </span>
-
-                              {/* Duration Badge */}
-                              <span className="absolute bottom-1 right-1 px-1 py-0.5 text-[7px] font-mono rounded bg-stone-900/90 text-amber-400 font-extrabold border border-stone-800/40 leading-none">
-                                {slide.duration || 3}s
-                              </span>
-
-                              {/* Filter/Transition info on hover */}
-                              <div className="absolute inset-0 bg-stone-950/60 opacity-0 group-hover:opacity-100 flex flex-col justify-center items-center text-[7px] font-bold font-mono text-stone-200 transition-opacity duration-150 p-1 text-center">
-                                <span className="uppercase text-[6px] text-amber-400">{slide.transition || "zoom"}</span>
-                                {slide.filter && slide.filter !== "none" && (
-                                  <span className="opacity-80 text-[6px]">{slide.filter}</span>
-                                )}
-                              </div>
-                            </button>
-
-                            {/* Transition indicator arrow between slides */}
-                            {idx < slides.length - 1 && (
-                              <div className="flex flex-col items-center justify-center px-1 text-stone-600 font-mono text-[9px] flex-shrink-0 select-none">
-                                <span className="text-amber-500/60 hover:text-amber-500 transition-colors font-extrabold">→</span>
-                                <span className="text-[7px] scale-90 opacity-60 font-bold uppercase tracking-tighter" style={{ maxWidth: "32px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                  {slides[idx].transition || "zoom"}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
+            <div className="flex items-center gap-2">
+              {/* Batch Select Mode Toggle */}
+              <button
+                onClick={() => {
+                  setIsBatchMode(b => !b);
+                  setSelectedSlideIds(new Set());
+                }}
+                className={`hud-btn px-2.5 py-1 text-[9px] flex items-center gap-1 ${
+                  isBatchMode ? "hud-btn-cyan" : "text-white/60"
+                }`}
+                title="Toggle Batch Multi-Select"
+              >
+                {isBatchMode ? (
+                  <CheckSquare className="w-3 h-3 text-[#22d3ee]" />
+                ) : (
+                  <Square className="w-3 h-3" />
                 )}
+                BATCH SELECT
+              </button>
 
-                {/* Slices Scroll Container */}
-                <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-stone-800">
-                  {slides.map((slide, idx) => (
-                    <div
-                      key={slide.id}
-                      className={`flex items-center gap-3 p-2.5 rounded-2xl border transition-all ${
-                        currentIndex === idx
-                          ? "bg-amber-500/5 border-amber-500/30"
-                          : "bg-stone-950/60 border-stone-800/80 hover:border-stone-700"
-                      }`}
-                    >
-                      {/* Checkbox for batch checking */}
-                      <div 
-                        onClick={() => toggleSlideCheck(slide.id)}
-                        className="flex-shrink-0 cursor-pointer p-0.5 text-stone-600 hover:text-amber-500 transition-colors"
-                        title="Toggle check frame for batch operations"
-                      >
-                        {checkedSlideIds.has(slide.id) ? (
-                          <CheckSquare className="w-4 h-4 text-amber-500 animate-pulse" />
+              {/* Batch Delete Button */}
+              {isBatchMode && selectedSlideIds.size > 0 && (
+                <button
+                  onClick={deleteSelectedSlides}
+                  className="hud-btn px-2.5 py-1 text-[9px] text-[#ff3d9a] border-[#ff3d9a]/60 hover:bg-[#ff3d9a]/20 flex items-center gap-1"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  DELETE ({selectedSlideIds.size})
+                </button>
+              )}
+
+              {/* Add Frame (+) Button */}
+              <button
+                onClick={() => setShowGalleryModal(true)}
+                className="hud-btn hud-btn-cyan px-3 py-1 text-[10px] font-bold flex items-center gap-1"
+                title="Add new photo or video clip to timeline"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                ADD FRAME
+              </button>
+            </div>
+          </div>
+
+          {/* HORIZONTAL SLIDES TIMELINE STRIP */}
+          <div className="relative py-2 overflow-x-auto select-none">
+            {/* Cyan Playhead Indicator sweeping across timeline */}
+            {totalDuration > 0 && (
+              <div
+                className="hud-playhead"
+                style={{
+                  left: `${Math.min(100, Math.max(0, (totalElapsedTime / totalDuration) * 100))}%`
+                }}
+              >
+                <div className="hud-playhead-diamond" />
+              </div>
+            )}
+
+            <div className="flex items-center gap-2.5 min-w-max pb-1">
+              {slides.map((s, idx) => {
+                const isSelected = currentIndex === idx;
+                const isBatchChecked = selectedSlideIds.has(s.id);
+
+                return (
+                  <div
+                    key={s.id}
+                    onClick={() => {
+                      if (isBatchMode) {
+                        const next = new Set(selectedSlideIds);
+                        if (next.has(s.id)) next.delete(s.id);
+                        else next.add(s.id);
+                        setSelectedSlideIds(next);
+                      } else {
+                        setCurrentIndex(idx);
+                        setCurrentSlideTime(0);
+                      }
+                    }}
+                    className={`relative w-28 h-20 rounded-xl overflow-hidden cursor-pointer transition-all duration-200 border bg-[#120c26] flex-shrink-0 group ${
+                      isSelected
+                        ? "hud-selected scale-105 z-10" // Selected clip strictly glows yellow (#ffc928)
+                        : "border-[#8b5cf6]/30 hover:border-[#22d3ee]/60 hover:scale-102"
+                    }`}
+                  >
+                    <img
+                      src={s.url}
+                      alt={`Slide ${idx + 1}`}
+                      className="w-full h-full object-cover"
+                      style={{ filter: getFilterCss(s.filter) }}
+                    />
+
+                    {/* Dark gradient overlay */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40" />
+
+                    {/* Top-Left: Index Badge */}
+                    <span className="absolute top-1.5 left-1.5 font-mono-hud text-[8px] px-1 py-0.2 rounded bg-black/75 text-white/90 border border-white/10">
+                      {(idx + 1).toString().padStart(2, "0")}
+                    </span>
+
+                    {/* Top-Right: Batch Checkmark or Selected Highlight */}
+                    {isBatchMode ? (
+                      <span className="absolute top-1.5 right-1.5">
+                        {isBatchChecked ? (
+                          <CheckSquare className="w-3.5 h-3.5 text-[#22d3ee]" />
                         ) : (
-                          <Square className="w-4 h-4 text-stone-700 hover:text-stone-500" />
+                          <Square className="w-3.5 h-3.5 text-white/40" />
                         )}
-                      </div>
+                      </span>
+                    ) : isSelected ? (
+                      <span className="absolute top-1.5 right-1.5 font-mono-hud text-[7px] px-1 py-0.2 rounded bg-[#ffc928] text-black font-extrabold shadow-sm">
+                        ACTIVE
+                      </span>
+                    ) : null}
 
-                      {/* Photo Thumbnail */}
-                      <button
-                        onClick={() => {
-                          setCurrentIndex(idx);
-                          setProgress(0);
-                        }}
-                        className="w-16 h-12 rounded-lg overflow-hidden flex-shrink-0 border border-stone-800 cursor-pointer"
-                      >
-                        <img
-                          src={slide.url}
-                          alt="Thumbnail"
-                          className="w-full h-full object-cover"
-                          referrerPolicy="no-referrer"
-                        />
-                      </button>
+                    {/* Bottom: Duration & Transition Tag */}
+                    <div className="absolute bottom-1.5 inset-x-1.5 flex items-center justify-between font-mono-hud text-[8px] text-white/80">
+                      <span>{s.duration}s</span>
+                      <span className="text-[#22d3ee] truncate max-w-[50px]">
+                        {s.transition}
+                      </span>
+                    </div>
 
-                      {/* Info & Settings */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-mono text-amber-500 font-bold">
-                            #{idx + 1}
-                          </span>
-                          <input
-                            type="text"
-                            value={slide.caption}
-                            onChange={(e) => {
-                              const updated = [...slides];
-                              updated[idx].caption = e.target.value;
-                              setSlides(updated);
-                            }}
-                            className="text-xs font-bold text-stone-200 bg-transparent border-b border-transparent hover:border-stone-800 focus:border-amber-500/50 focus:outline-none w-full py-0.5 truncate"
-                            placeholder="Enter slide subtitle..."
-                          />
-                        </div>
-                        
-                        <div className="flex items-center gap-3 mt-1.5 text-[9px] font-mono text-stone-400">
-                          <select
-                            value={slide.transition}
-                            onChange={(e) => {
-                              const updated = [...slides];
-                              updated[idx].transition = e.target.value as any;
-                              setSlides(updated);
-                            }}
-                            className="bg-transparent border-none text-amber-500 cursor-pointer focus:outline-none"
-                          >
-                            <option value="zoom">Zoom</option>
-                            <option value="zoomOut">Zoom Out</option>
-                            <option value="panLeft">Pan L</option>
-                            <option value="panRight">Pan R</option>
-                            <option value="tiltUp">Tilt U</option>
-                            <option value="tiltDown">Tilt D</option>
-                            <option value="slideUp">Slide U</option>
-                            <option value="slideLeft">Slide L</option>
-                            <option value="slideRight">Slide R</option>
-                            <option value="blurFade">Blur</option>
-                            <option value="retroSpin">Spin</option>
-                            <option value="vortex">Vortex</option>
-                            <option value="glitch">Glitch</option>
-                            <option value="fadeOnly">Fade</option>
-                          </select>
-                          
-                          <span>•</span>
-
-                          <select
-                            value={slide.duration}
-                            onChange={(e) => {
-                              const updated = [...slides];
-                              updated[idx].duration = Number(e.target.value);
-                              setSlides(updated);
-                            }}
-                            className="bg-transparent border-none text-stone-300 cursor-pointer focus:outline-none"
-                          >
-                            <option value={2}>2s</option>
-                            <option value={3}>3s</option>
-                            <option value={4}>4s</option>
-                            <option value={5}>5s</option>
-                            <option value={8}>8s</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      {/* Frame actions */}
-                      <div className="flex items-center gap-1.5">
+                    {/* Quick Move Buttons on Hover */}
+                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-1.5 transition-opacity">
+                      {idx > 0 && (
                         <button
-                          onClick={() => moveSlide(idx, "left")}
-                          disabled={idx === 0}
-                          className="p-1 rounded bg-stone-900 border border-stone-800 text-stone-400 hover:text-stone-200 disabled:opacity-30 cursor-pointer"
-                          title="Move Slide Up"
+                          onClick={e => {
+                            e.stopPropagation();
+                            moveSlide(idx, idx - 1);
+                          }}
+                          className="p-1.5 rounded-lg bg-[#120c26] border border-[#8b5cf6]/40 text-white hover:text-[#22d3ee] active:scale-95"
+                          title="Move Left"
                         >
                           <ChevronLeft className="w-3.5 h-3.5" />
                         </button>
+                      )}
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          deleteSlide(idx);
+                        }}
+                        className="p-1.5 rounded-lg bg-[#120c26] border border-[#ff3d9a]/50 text-white hover:text-[#ff3d9a] active:scale-95"
+                        title="Delete Slide"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                      {idx < slides.length - 1 && (
                         <button
-                          onClick={() => moveSlide(idx, "right")}
-                          disabled={idx === slides.length - 1}
-                          className="p-1 rounded bg-stone-900 border border-stone-800 text-stone-400 hover:text-stone-200 disabled:opacity-30 cursor-pointer"
-                          title="Move Slide Down"
+                          onClick={e => {
+                            e.stopPropagation();
+                            moveSlide(idx, idx + 1);
+                          }}
+                          className="p-1.5 rounded-lg bg-[#120c26] border border-[#8b5cf6]/40 text-white hover:text-[#22d3ee] active:scale-95"
+                          title="Move Right"
                         >
                           <ChevronRight className="w-3.5 h-3.5" />
                         </button>
-                        <button
-                          onClick={() => duplicateSlide(slide, idx)}
-                          className="p-1 rounded bg-stone-900 border border-stone-800 text-stone-400 hover:text-amber-400 cursor-pointer"
-                          title="Duplicate Slide"
-                        >
-                          <Copy className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => {
-                            const updated = slides.filter((_, i) => i !== idx);
-                            setSlides(updated);
-                            if (currentIndex >= updated.length) {
-                              setCurrentIndex(Math.max(0, updated.length - 1));
-                            }
-                          }}
-                          className="p-1 rounded bg-stone-900 border border-stone-800 text-stone-400 hover:text-rose-400 cursor-pointer"
-                          title="Delete Slide"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                      )}
                     </div>
+                  </div>
+                );
+              })}
+
+              {/* Add New Slide Card at end of strip */}
+              <button
+                onClick={() => setShowGalleryModal(true)}
+                className="w-24 h-20 rounded-xl border border-dashed border-[#8b5cf6]/40 hover:border-[#22d3ee] hover:bg-[#8b5cf6]/10 flex flex-col items-center justify-center gap-1.5 transition-all text-white/50 hover:text-[#22d3ee] flex-shrink-0 cursor-pointer"
+                title="Add Slide from Media Library or Device"
+              >
+                <Plus className="w-4 h-4" />
+                <span className="font-mono-hud text-[8px]">ADD CLIP</span>
+              </button>
+            </div>
+          </div>
+
+          {/* AUDIO WAVEFORM TRACK WITH CLICK SEEKING */}
+          <div className="relative pt-1 border-t border-[#8b5cf6]/20 flex items-center gap-3">
+            <span className="font-mono-hud text-[9px] text-[#ff3d9a] flex items-center gap-1">
+              <Music className="w-3 h-3" />
+              A1 // BGM
+            </span>
+
+            {/* Clickable Animated Waveform Track */}
+            <div
+              onClick={e => {
+                if (totalDuration <= 0) return;
+                const rect = e.currentTarget.getBoundingClientRect();
+                const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                const targetSeconds = ratio * totalDuration;
+                let acc = 0;
+                for (let i = 0; i < slides.length; i++) {
+                  const dur = slides[i].duration;
+                  if (targetSeconds >= acc && targetSeconds < acc + dur) {
+                    setCurrentIndex(i);
+                    setCurrentSlideTime(targetSeconds - acc);
+                    return;
+                  }
+                  acc += dur;
+                }
+                if (slides.length > 0) {
+                  setCurrentIndex(slides.length - 1);
+                  setCurrentSlideTime(slides[slides.length - 1].duration);
+                }
+              }}
+              className="flex-1 h-6 flex items-end gap-1 px-2 py-1 bg-[#07050f] rounded-lg border border-[#8b5cf6]/30 overflow-hidden cursor-pointer hover:border-[#22d3ee]/60 transition-colors"
+              title="Click to seek / scrub timeline"
+            >
+              {Array.from({ length: 64 }).map((_, i) => {
+                const ratio = i / 64;
+                const progressRatio = totalDuration > 0 ? totalElapsedTime / totalDuration : 0;
+                const isPassed = ratio <= progressRatio;
+                // Height based on sine waves
+                const heightPct = 20 + Math.abs(Math.sin(i * 0.35)) * 60 + Math.sin(i * 1.2) * 15;
+
+                return (
+                  <div
+                    key={i}
+                    className={`flex-1 rounded-t-sm transition-all duration-150 ${
+                      isPassed
+                        ? "bg-gradient-to-t from-[#8b5cf6] to-[#ff3d9a] shadow-[0_0_6px_rgba(255,61,154,0.4)]"
+                        : "bg-[#8b5cf6]/20"
+                    }`}
+                    style={{ height: `${heightPct}%` }}
+                  />
+                );
+              })}
+            </div>
+
+            <span className="font-mono-hud text-[9px] text-white/40">
+              SYNTH 48kHz
+            </span>
+          </div>
+        </div>
+      </footer>
+
+      {/* HIDDEN FILE INPUT FOR PHOTO UPLOAD */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,video/*"
+        onChange={handleFileUpload}
+        className="hidden"
+      />
+
+      {/* AI COLLAGE ANALYZER & BREAKDOWN MODAL */}
+      {showAiModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="hud-glass-card max-w-lg w-full p-5 sm:p-6 flex flex-col gap-4 border border-[#22d3ee]/50 shadow-[0_0_50px_rgba(34,211,238,0.2)]">
+            <div className="hud-bracket hud-bracket-tl" />
+            <div className="hud-bracket hud-bracket-tr" />
+            <div className="hud-bracket hud-bracket-bl" />
+            <div className="hud-bracket hud-bracket-br" />
+
+            <div className="flex items-center justify-between border-b border-[#8b5cf6]/30 pb-3">
+              <div className="flex items-center gap-2">
+                <Wand2 className="w-5 h-5 text-[#22d3ee]" />
+                <h3 className="font-extrabold text-base text-white">
+                  AI COLLAGE TO VIDEO GENERATOR
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowAiModal(false)}
+                className="p-1 rounded-lg hover:bg-white/10 text-white/60 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-white/70 leading-relaxed">
+              Upload a multi-photo collage or image poster. Google Gemini Vision AI will automatically detect individual sub-photos, crop them, generate emotional memory captions, and build a synchronized video timeline with smooth cinematic transitions.
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block font-mono-hud text-[9px] text-white/60 mb-1">
+                  COLLAGE IMAGE URL (OR LEAVE BLANK FOR SAMPLE COLLAGE)
+                </label>
+                <input
+                  type="text"
+                  value={collageImageUrl}
+                  onChange={e => setCollageImageUrl(e.target.value)}
+                  placeholder="https://... (or sample celebratory collage)"
+                  className="hud-input w-full px-3 py-2 text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block font-mono-hud text-[9px] text-white/60 mb-1">
+                  STORY THEME
+                </label>
+                <input
+                  type="text"
+                  value={collageTheme}
+                  onChange={e => setCollageTheme(e.target.value)}
+                  placeholder="e.g., Cyberpunk Sci-Fi, Birthday Celebration..."
+                  className="hud-input w-full px-3 py-2 text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block font-mono-hud text-[9px] text-white/60 mb-1">
+                  STYLE & TONE INSTRUCTIONS
+                </label>
+                <input
+                  type="text"
+                  value={collagePrompt}
+                  onChange={e => setCollagePrompt(e.target.value)}
+                  placeholder="e.g., Dynamic, emotional, high contrast neon..."
+                  className="hud-input w-full px-3 py-2 text-xs"
+                />
+              </div>
+            </div>
+
+            {isAnalyzingCollage && (
+              <div className="p-3 rounded-xl bg-[#120c26] border border-[#22d3ee]/40 space-y-2">
+                <div className="flex items-center justify-between text-xs font-mono-hud">
+                  <span className="text-[#22d3ee] flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-[#22d3ee] animate-ping" />
+                    AI AGENT WORKING
+                  </span>
+                  <span className="text-white/60">PROCESSING</span>
+                </div>
+                <p className="text-xs text-white/80">{collageStatusText}</p>
+              </div>
+            )}
+
+            <div className="pt-2 flex justify-end gap-2">
+              <button
+                onClick={() => setShowAiModal(false)}
+                className="hud-btn px-4 py-2 text-xs"
+                disabled={isAnalyzingCollage}
+              >
+                CANCEL
+              </button>
+              <button
+                onClick={handleAnalyzeAndGenerateCollage}
+                className="hud-btn hud-btn-primary px-5 py-2 text-xs font-bold"
+                disabled={isAnalyzingCollage}
+              >
+                <Wand2 className="w-3.5 h-3.5 inline mr-1.5" />
+                {isAnalyzingCollage ? "ANALYZING..." : "GENERATE VIDEO"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EXPORT VIDEO MODAL */}
+      {showExportModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="hud-glass-card max-w-md w-full p-5 sm:p-6 flex flex-col gap-4 border border-[#ff3d9a]/50 shadow-[0_0_50px_rgba(255,61,154,0.25)]">
+            <div className="hud-bracket hud-bracket-tl" />
+            <div className="hud-bracket hud-bracket-tr" />
+            <div className="hud-bracket hud-bracket-bl" />
+            <div className="hud-bracket hud-bracket-br" />
+
+            <div className="flex items-center justify-between border-b border-[#8b5cf6]/30 pb-3">
+              <div className="flex items-center gap-2">
+                <Download className="w-5 h-5 text-[#ff3d9a]" />
+                <h3 className="font-extrabold text-base text-white">
+                  EXPORT HIGH-RES VIDEO
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowExportModal(false)}
+                className="p-1 rounded-lg hover:bg-white/10 text-white/60 hover:text-white"
+                disabled={isExporting}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block font-mono-hud text-[9px] text-white/60 mb-1.5">
+                  RESOLUTION
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(["720p", "1080p", "4k"] as const).map(res => (
+                    <button
+                      key={res}
+                      onClick={() => setExportResolution(res)}
+                      className={`hud-btn py-2 text-xs font-bold ${
+                        exportResolution === res ? "hud-btn-primary" : "text-white/60"
+                      }`}
+                      disabled={isExporting}
+                    >
+                      {res.toUpperCase()}
+                    </button>
                   ))}
                 </div>
+              </div>
 
-                <div className="pt-2 border-t border-stone-800/80 flex justify-between items-center text-xs text-stone-500 font-mono">
-                  <span>Bulk uploads active</span>
-                  <span>Total slides: {slides.length}</span>
+              <div>
+                <label className="block font-mono-hud text-[9px] text-white/60 mb-1.5">
+                  FORMAT
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setExportFormat("mp4")}
+                    className={`hud-btn py-2 text-xs font-bold ${
+                      exportFormat === "mp4" ? "hud-btn-cyan" : "text-white/60"
+                    }`}
+                    disabled={isExporting}
+                  >
+                    MP4 (H.264 / AAC)
+                  </button>
+                  <button
+                    onClick={() => setExportFormat("webm")}
+                    className={`hud-btn py-2 text-xs font-bold ${
+                      exportFormat === "webm" ? "hud-btn-cyan" : "text-white/60"
+                    }`}
+                    disabled={isExporting}
+                  >
+                    WEBM (FAST)
+                  </button>
                 </div>
               </div>
-            </section>
-          </div>
-        )}
+            </div>
 
-        {/* Minimal layout footer */}
-        <footer className="mt-auto pt-16 border-t border-stone-900 pb-4 text-center">
-          <p className="text-xs text-stone-600">
-            Cinematic Slideshow & HD Movie Creator Powered by Web Audio, HTML5 Canvas, and Framer Motion.
-          </p>
-        </footer>
+            {/* Export Progress Bar */}
+            {isExporting && (
+              <div className="p-3 rounded-xl bg-[#120c26] border border-[#ff3d9a]/40 space-y-2">
+                <div className="flex justify-between font-mono-hud text-xs">
+                  <span className="text-[#ff3d9a] font-bold">COMPILING FRAMES</span>
+                  <span className="text-white">{exportProgress}%</span>
+                </div>
+                <div className="w-full h-2 rounded-full bg-black/60 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#ff3d9a] via-[#8b5cf6] to-[#22d3ee] transition-all duration-150"
+                    style={{ width: `${exportProgress}%` }}
+                  />
+                </div>
+                <p className="font-mono-hud text-[9px] text-white/70">{exportStatusText}</p>
+              </div>
+            )}
 
-        {/* Cinematic Video Export Modal Overlay */}
-        <AnimatePresence>
-          {isExporting && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-stone-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4"
-            >
-              <motion.div
-                initial={{ scale: 0.95, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.95, opacity: 0 }}
-                className="bg-stone-900 border border-stone-800 rounded-3xl p-8 max-w-md w-full shadow-2xl text-center space-y-6"
+            <div className="pt-2 flex justify-end gap-2">
+              <button
+                onClick={() => setShowExportModal(false)}
+                className="hud-btn px-4 py-2 text-xs"
+                disabled={isExporting}
               >
-                <div className="relative w-20 h-20 mx-auto flex items-center justify-center">
-                  <div className="absolute inset-0 rounded-full border-4 border-stone-800 border-t-amber-500 animate-spin" />
-                  <div className="absolute inset-2 rounded-full border-4 border-stone-800 border-b-amber-400 animate-spin" style={{ animationDirection: "reverse" }} />
-                  <Download className="w-7 h-7 text-amber-500 animate-pulse" />
-                </div>
+                CLOSE
+              </button>
+              <button
+                onClick={handleExportVideo}
+                className="hud-btn hud-btn-primary px-5 py-2 text-xs font-extrabold"
+                disabled={isExporting}
+              >
+                <Download className="w-3.5 h-3.5 inline mr-1.5" />
+                {isExporting ? "EXPORTING..." : "START EXPORT"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
-                <div className="space-y-2">
-                  <h3 className="text-base font-bold text-stone-100 tracking-tight">
-                    Generating Cinematic Video
-                  </h3>
-                  <p className="text-xs text-stone-400 font-mono">
-                    {exportStatusText || "Processing project media..."}
-                  </p>
-                </div>
+      {/* SAVED PROJECTS MODAL */}
+      {showProjectsModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="hud-glass-card max-w-md w-full p-5 sm:p-6 flex flex-col gap-4 border border-[#8b5cf6]/50">
+            <div className="hud-bracket hud-bracket-tl" />
+            <div className="hud-bracket hud-bracket-tr" />
+            <div className="hud-bracket hud-bracket-bl" />
+            <div className="hud-bracket hud-bracket-br" />
 
-                {/* Progress bar and numeric percentage */}
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center text-xs font-mono font-bold text-stone-400">
-                    <span>Export Progress</span>
-                    <span className="text-amber-500">{exportProgress}%</span>
-                  </div>
-                  <div className="h-2 w-full bg-stone-950 rounded-full overflow-hidden border border-stone-800">
-                    <div
-                      style={{ width: `${exportProgress}%` }}
-                      className="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full transition-all duration-300"
-                    />
-                  </div>
-                  {exportTimeRemaining !== null && (
-                    <div className="space-y-2 bg-stone-950/60 rounded-xl p-3 border border-stone-800/50 mt-1 text-left">
-                      <div className="flex justify-between items-center text-[11px] font-mono text-stone-400">
-                        <span className="text-stone-500">Estimated time remaining:</span>
-                        <span className="text-amber-400 font-bold">
-                          {exportTimeRemaining > 60
-                            ? `${Math.floor(exportTimeRemaining / 60)}m ${exportTimeRemaining % 60}s`
-                            : `${exportTimeRemaining}s`}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center text-[10px] font-mono text-stone-500 border-t border-stone-800/40 pt-1.5">
-                        <span>Resolution: {exportResolution}</span>
-                        <span>Format: {exportFormat.toUpperCase()}</span>
-                      </div>
+            <div className="flex items-center justify-between border-b border-[#8b5cf6]/30 pb-3">
+              <div className="flex items-center gap-2">
+                <FolderOpen className="w-5 h-5 text-[#8b5cf6]" />
+                <h3 className="font-extrabold text-base text-white">
+                  SAVED PROJECTS
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowProjectsModal(false)}
+                className="p-1 rounded-lg hover:bg-white/10 text-white/60 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
+              {savedProjects.length === 0 ? (
+                <p className="text-xs text-white/50 text-center py-6 font-mono-hud">
+                  No saved projects in local storage yet.
+                </p>
+              ) : (
+                savedProjects.map(name => (
+                  <div
+                    key={name}
+                    onClick={() => loadProject(name)}
+                    className="flex items-center justify-between p-3 rounded-xl bg-[#120c26] border border-[#8b5cf6]/30 hover:border-[#22d3ee] hover:bg-[#1a1234] cursor-pointer transition-all group"
+                  >
+                    <div>
+                      <h4 className="font-bold text-xs text-white group-hover:text-[#22d3ee]">
+                        {name}
+                      </h4>
+                      <span className="font-mono-hud text-[8px] text-white/40">
+                        CLICK TO LOAD
+                      </span>
                     </div>
-                  )}
-                  <p className="text-[10px] text-stone-500 italic mt-2">
-                    Please do not close this tab or navigate away.
-                  </p>
+                    <button
+                      onClick={e => deleteSavedProject(name, e)}
+                      className="p-1.5 rounded-lg text-white/40 hover:text-[#ff3d9a] hover:bg-black/40 transition-colors"
+                      title="Delete project"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="pt-2 flex justify-between items-center">
+              <button
+                onClick={startNewProject}
+                className="hud-btn px-3 py-1.5 text-xs text-[#ff3d9a] hover:border-[#ff3d9a]"
+              >
+                RESET TO BLANK
+              </button>
+              <button
+                onClick={() => setShowProjectsModal(false)}
+                className="hud-btn px-4 py-1.5 text-xs"
+              >
+                CLOSE
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ASSET & MEDIA GALLERY MODAL */}
+      {showGalleryModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="hud-glass-card max-w-2xl w-full p-5 sm:p-6 flex flex-col gap-4 border border-[#22d3ee]/50">
+            <div className="hud-bracket hud-bracket-tl" />
+            <div className="hud-bracket hud-bracket-tr" />
+            <div className="hud-bracket hud-bracket-bl" />
+            <div className="hud-bracket hud-bracket-br" />
+
+            <div className="flex items-center justify-between border-b border-[#8b5cf6]/30 pb-3">
+              <div className="flex items-center gap-2">
+                <ImageIcon className="w-5 h-5 text-[#22d3ee]" />
+                <h3 className="font-extrabold text-base text-white">
+                  MEDIA & ASSET GALLERY
+                </h3>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="hud-btn hud-btn-cyan px-3 py-1 text-xs font-bold"
+                >
+                  <Upload className="w-3.5 h-3.5 inline mr-1" />
+                  UPLOAD FILE
+                </button>
+                <button
+                  onClick={() => setShowGalleryModal(false)}
+                  className="p-1 rounded-lg hover:bg-white/10 text-white/60 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Direct Image URL input */}
+            <div className="flex items-center gap-2 p-2 bg-[#120c26] rounded-xl border border-[#8b5cf6]/30">
+              <input
+                type="text"
+                value={galleryInputUrl}
+                onChange={e => setGalleryInputUrl(e.target.value)}
+                placeholder="Or paste any image URL..."
+                className="hud-input flex-1 px-3 py-1.5 text-xs"
+              />
+              <button
+                onClick={() => {
+                  if (!galleryInputUrl.trim()) return;
+                  const newSlide: VideoSlide = {
+                    id: `slide_url_${Date.now()}`,
+                    url: galleryInputUrl.trim(),
+                    caption: `Scene ${slides.length + 1}`,
+                    duration: 3.5,
+                    transition: "zoom",
+                    filter: "none",
+                    fitMode: "cover",
+                    zoomMultiplier: 1.0,
+                    volume: 100
+                  };
+                  setSlides(prev => [...prev, newSlide]);
+                  setCurrentIndex(slides.length);
+                  setGalleryAssets(prev => [galleryInputUrl.trim(), ...prev]);
+                  setGalleryInputUrl("");
+                  setShowGalleryModal(false);
+                  showToast("Image added to timeline", "success");
+                }}
+                disabled={!galleryInputUrl.trim()}
+                className="hud-btn hud-btn-cyan px-3 py-1.5 text-xs font-bold disabled:opacity-40"
+              >
+                + ADD URL
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-80 overflow-y-auto pr-1">
+              {galleryAssets.map((assetUrl, idx) => (
+                <div
+                  key={idx}
+                  onClick={() => {
+                    const newSlide: VideoSlide = {
+                      id: `slide_asset_${Date.now()}_${idx}`,
+                      url: assetUrl,
+                      caption: `Scene ${slides.length + 1}`,
+                      duration: 3,
+                      transition: "zoom",
+                      filter: "none",
+                      fitMode: "cover",
+                      zoomMultiplier: 1.0,
+                      volume: 100
+                    };
+                    setSlides(prev => [...prev, newSlide]);
+                    setCurrentIndex(slides.length);
+                    setShowGalleryModal(false);
+                    showToast("Asset added to timeline", "success");
+                  }}
+                  className="relative aspect-video rounded-xl overflow-hidden border border-[#8b5cf6]/40 hover:border-[#22d3ee] bg-black group cursor-pointer transition-all hover:scale-[1.02]"
+                >
+                  <img
+                    src={assetUrl}
+                    alt={`Asset ${idx + 1}`}
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute inset-x-0 bottom-0 p-1.5 bg-gradient-to-t from-black via-black/80 to-transparent flex justify-center">
+                    <button
+                      type="button"
+                      className="hud-btn hud-btn-cyan w-full py-1 text-[9px] font-bold"
+                    >
+                      + ADD TO TIMELINE
+                    </button>
+                  </div>
                 </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-          </>
-        )}
-      </div>
+              ))}
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                onClick={() => setShowGalleryModal(false)}
+                className="hud-btn px-4 py-2 text-xs"
+              >
+                CLOSE
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* HUD CONFIRMATION MODAL (Replaces blocked window.confirm) */}
+      {confirmDialog && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="hud-glass-card max-w-sm w-full p-5 flex flex-col gap-4 border border-[#ff3d9a]/60 shadow-[0_0_40px_rgba(255,61,154,0.3)]">
+            <div className="hud-bracket hud-bracket-tl" />
+            <div className="hud-bracket hud-bracket-tr" />
+            <div className="hud-bracket hud-bracket-bl" />
+            <div className="hud-bracket hud-bracket-br" />
+
+            <div className="flex items-center gap-2 border-b border-[#ff3d9a]/30 pb-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#ff3d9a] animate-pulse" />
+              <h4 className="font-extrabold text-sm text-white tracking-wider">
+                {confirmDialog.title}
+              </h4>
+            </div>
+
+            <p className="text-xs text-white/80 leading-relaxed font-sans">
+              {confirmDialog.message}
+            </p>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setConfirmDialog(null)}
+                className="hud-btn px-4 py-1.5 text-xs"
+              >
+                CANCEL
+              </button>
+              <button
+                onClick={confirmDialog.onConfirm}
+                className={`hud-btn ${
+                  confirmDialog.confirmColor === "cyan" ? "hud-btn-cyan" : "hud-btn-primary"
+                } px-4 py-1.5 text-xs font-bold`}
+              >
+                {confirmDialog.confirmText || "CONFIRM"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* HUD TOAST NOTIFICATION (Replaces blocked window.alert) */}
+      {toast && (
+        <div className="fixed bottom-6 inset-x-0 z-50 flex justify-center pointer-events-none px-4">
+          <div
+            className={`pointer-events-auto px-4 py-2.5 rounded-xl border backdrop-blur-lg shadow-2xl flex items-center gap-2.5 font-mono-hud text-xs tracking-wide transition-all ${
+              toast.type === "success"
+                ? "bg-[#071912]/90 border-[#22d3ee] text-[#22d3ee] shadow-[0_0_20px_rgba(34,211,238,0.4)]"
+                : toast.type === "warn"
+                ? "bg-[#200c14]/90 border-[#ff3d9a] text-[#ff3d9a] shadow-[0_0_20px_rgba(255,61,154,0.4)]"
+                : "bg-[#100b24]/90 border-[#8b5cf6] text-white shadow-[0_0_20px_rgba(139,92,246,0.4)]"
+            }`}
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                toast.type === "success"
+                  ? "bg-[#22d3ee]"
+                  : toast.type === "warn"
+                  ? "bg-[#ff3d9a]"
+                  : "bg-[#8b5cf6]"
+              } animate-ping`}
+            />
+            <span>{toast.message}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

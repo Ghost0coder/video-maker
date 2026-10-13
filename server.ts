@@ -166,8 +166,19 @@ app.post("/api/generate-captions", async (req, res) => {
     const captions = JSON.parse(resultText);
     res.json({ captions });
   } catch (error: any) {
-    console.error("Error generating captions:", error);
-    res.status(500).json({ error: error.message || "Failed to generate captions" });
+    console.warn("AI Caption service fallback:", error.message || error);
+    const fallbacks = [
+      "Neon pulses through the rain-soaked asphalt.",
+      "Reflections of a towering skyline cut through the haze.",
+      "A fragmented memory frozen in digital amber.",
+      "Drifting into the twilight grid where dreams collide.",
+      "The engine purrs against the quiet hum of the dark city.",
+      "Chasing shadows through the electrified neon corridor.",
+      "Moments etched in chrome, glass, and circuit light."
+    ];
+    const requested = (req.body?.descriptions || []) as string[];
+    const captions = requested.map((_, i) => fallbacks[i % fallbacks.length]);
+    res.json({ captions, fallback: true });
   }
 });
 
